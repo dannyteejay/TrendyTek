@@ -1,0 +1,171 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Prata&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  font-family: Outfit, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.font-prata {
+  font-family: Prata, serif;
+}
+
+/* =========================================================
+   PERFECT HIGH-CONTRAST DARK THEME
+   - Ultra-crisp typography
+   - Glowing pure white icons on dark backgrounds
+   - 100% full vibrant images & banners
+   - High-contrast buttons
+   ========================================================= */
+
+html.dark {
+  color-scheme: dark;
+  background-color: #0b0f19 !important;
+  color: #ffffff !important;
+}
+
+html.dark body {
+  background-color: #0b0f19 !important;
+  color: #ffffff !important;
+}
+
+/* 1. HEADINGS & STRONG TEXT */
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark h5,
+html.dark h6,
+html.dark b,
+html.dark strong,
+html.dark th {
+  color: #ffffff !important;
+}
+
+/* 2. BODY TEXT & LABELS */
+html.dark p,
+html.dark span,
+html.dark label,
+html.dark li,
+html.dark td {
+  color: #cbd5e1 !important;
+}
+
+/* 3. CARD & CONTAINER BACKGROUNDS */
+html.dark .bg-white {
+  background-color: #131b2e !important;
+}
+
+html.dark .bg-gray-50,
+html.dark .bg-slate-50,
+html.dark .bg-neutral-50 {
+  background-color: #0b0f19 !important;
+}
+
+html.dark .bg-gray-100,
+html.dark .bg-slate-100 {
+  background-color: #19233c !important;
+}
+
+html.dark .bg-gray-200 {
+  background-color: #24304d !important;
+}
+
+/* 4. GRADIENTS IN HERO / BANNERS */
+html.dark .from-slate-50,
+html.dark .from-gray-100 {
+  --tw-gradient-from: #131b2e var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(19 27 46 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.dark .via-white,
+html.dark .via-gray-50 {
+  --tw-gradient-to: rgb(11 15 25 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #0f172a var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark .to-gray-100,
+html.dark .to-gray-50 {
+  --tw-gradient-to: #0b0f19 var(--tw-gradient-to-position) !important;
+}
+
+/* 5. BORDERS */
+html.dark .border-gray-100,
+html.dark .border-gray-200,
+html.dark .border-gray-300,
+html.dark hr {
+  border-color: #222f4c !important;
+}
+
+/* 6. INPUTS & FORM CONTROLS */
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #131b2e !important;
+  color: #ffffff !important;
+  border-color: #2c3c61 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* 7. BUTTONS */
+html.dark button.bg-black {
+  background-color: #ffffff !important;
+  color: #0b0f19 !important;
+}
+
+html.dark button.bg-black:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* White CTA Buttons */
+a[class*="bg-white"],
+button[class*="bg-white"],
+html.dark a[class*="bg-white"],
+html.dark button[class*="bg-white"] {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+a[class*="bg-white"]:hover,
+button[class*="bg-white"]:hover,
+html.dark a[class*="bg-white"]:hover,
+html.dark button[class*="bg-white"]:hover {
+  background-color: #e2e8f0 !important;
+  color: #000000 !important;
+}
+
+/* 8. UI ICONS - INVERT TO PURE WHITE IN DARK MODE */
+html.dark img[src*="search_icon"],
+html.dark img[src*="cart_icon"],
+html.dark img[src*="profile_icon"],
+html.dark img[src*="menu_icon"],
+html.dark img[src*="dropdown_icon"],
+html.dark img[src*="exchange_icon"],
+html.dark img[src*="quality_icon"],
+html.dark img[src*="support_img"],
+html.dark img[src*="support_icon"],
+html.dark img[src*="bin_icon"],
+html.dark img[src*="cross_icon"] {
+  filter: brightness(0) invert(1) !important;
+}
+
+/* 9. PICTURES & IMAGES (100% UNTOUCHED, VIBRANT & BRIGHT) */
+html.dark img.object-cover,
+html.dark img.object-contain,
+html.dark img[alt*="Banner"],
+html.dark img[alt*="Product"],
+html.dark img[alt*="Avatar"],
+html.dark img[src*="cloudinary"],
+html.dark img[src*="blob"],
+html.dark img[src*="data:image"] {
+  filter: none !important;
+  opacity: 1 !important;
+}
