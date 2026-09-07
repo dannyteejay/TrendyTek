@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from "react";
 import Title from "../components/Title";
 import { assets } from "../assets/assets";
-import Newsletter from "../components/Newsletter";
+import NewsletterBox from "../components/Newsletter";
 import { ShopContext } from "../context/ShopContext";
 import axios from "axios";
 
