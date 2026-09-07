@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useContext } from "react";
 import Title from "../components/Title";
-import NewsletterBox from "../components/NewsletterBox";
+import NewsletterBox from "../components/Newsletter";
 import { ShopContext } from "../context/ShopContext";
 import { toast } from "react-toastify";
 import { useSearchParams } from "react-router-dom";

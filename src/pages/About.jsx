@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from "react";
 import Title from "../components/Title";
 import { assets } from "../assets/assets";
-import NewsletterBox from "../components/NewsletterBox";
+import Newsletter from "../components/Newsletter";
 import { ShopContext } from "../context/ShopContext";
 import axios from "axios";
 
@@ -83,7 +83,7 @@ const About = () => {
             <img
               className="object-cover w-full h-auto max-h-[460px] hover:scale-103 transition-transform duration-500"
               src={bannerImage}
-              alt="About Trendify"
+              alt="About Trendytek"
             />
           </div>
         </div>
