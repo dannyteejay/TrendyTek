@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import Title from "../components/Title";
-import NewsletterBox from "../components/Newsletter";
+import NewsletterBox from "../components/NewsletterBox";
 import { Link } from "react-router-dom";
 
 const FAQ_DATA = [
