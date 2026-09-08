@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { ShopContext } from "../context/ShopContext";
 import axios from "axios";
 import { toast } from "react-toastify";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 
 const Login = () => {
   // Mode: 'Login' | 'Sign Up' | 'Forgot Password'
@@ -11,7 +11,7 @@ const Login = () => {
   // Forgot Password Steps: 'EMAIL_STEP' | 'RESET_STEP'
   const [forgotStep, setForgotStep] = useState("EMAIL_STEP");
 
-  // Form Fields
+  // Form Fields - explicitly initialized to empty strings
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,24 +29,41 @@ const Login = () => {
   } = useContext(ShopContext);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const redirectPath = searchParams.get("redirect") || "";
 
-  // Helper to redirect to checkout if coming from Cart, or home otherwise
+  // Reset form inputs whenever opening login page or toggling between modes
+  useEffect(() => {
+    setName("");
+    setEmail("");
+    setPassword("");
+    setOtp("");
+    setNewPassword("");
+  }, [location.pathname, currentState, forgotStep]);
+
+  // Auto redirect if already authenticated
+  useEffect(() => {
+    if (token) {
+      if (redirectPath === "place-order") {
+        navigate("/place-order");
+      } else {
+        navigate("/");
+      }
+    }
+  }, [token, navigate, redirectPath]);
+
   const handleSuccessfulAuth = () => {
+    // Clear inputs after successful login
+    setName("");
+    setEmail("");
+    setPassword("");
     if (redirectPath === "place-order") {
       navigate("/place-order");
     } else {
       navigate("/");
     }
   };
-
-  // Auto-redirect if already logged in
-  useEffect(() => {
-    if (token) {
-      handleSuccessfulAuth();
-    }
-  }, [token, redirectPath]);
 
   const onSubmitHandler = async (event) => {
     event.preventDefault();
@@ -56,9 +73,9 @@ const Login = () => {
       // 1. SIGN UP (REGISTER)
       if (currentState === "Sign Up") {
         const response = await axios.post(backendUrl + "/api/user/register", {
-          name,
-          email,
-          password,
+          name: name.trim(),
+          email: email.trim(),
+          password: password.trim(),
         });
 
         if (response.data.success) {
@@ -83,8 +100,8 @@ const Login = () => {
       // 2. SIGN IN (LOGIN)
       else if (currentState === "Login") {
         const response = await axios.post(backendUrl + "/api/user/login", {
-          email,
-          password,
+          email: email.trim(),
+          password: password.trim(),
         });
 
         if (response.data.success) {
@@ -114,7 +131,7 @@ const Login = () => {
       // 3. FORGOT PASSWORD - STEP 1: SEND OTP
       else if (currentState === "Forgot Password" && forgotStep === "EMAIL_STEP") {
         const response = await axios.post(backendUrl + "/api/user/forgot-password", {
-          email,
+          email: email.trim(),
         });
 
         if (response.data.success) {
@@ -128,9 +145,9 @@ const Login = () => {
       // 4. FORGOT PASSWORD - STEP 2: VERIFY OTP & RESET PASSWORD
       else if (currentState === "Forgot Password" && forgotStep === "RESET_STEP") {
         const response = await axios.post(backendUrl + "/api/user/reset-password", {
-          email,
-          otp,
-          newPassword,
+          email: email.trim(),
+          otp: otp.trim(),
+          newPassword: newPassword.trim(),
         });
 
         if (response.data.success) {
@@ -155,6 +172,7 @@ const Login = () => {
   return (
     <form
       onSubmit={onSubmitHandler}
+      autoComplete="off"
       className="flex flex-col items-center w-[90%] sm:max-w-96 m-auto mt-14 gap-4 text-gray-800 dark:text-gray-200 pb-20 transition-colors duration-300"
     >
       {/* Title Header */}
@@ -169,14 +187,13 @@ const Login = () => {
         <hr className="border-none h-[1.5px] w-8 bg-gray-800 dark:bg-gray-200" />
       </div>
 
-      {/* Helper Banner when coming from Checkout */}
+      {/* Helper text */}
       {redirectPath === "place-order" && (
-        <div className="w-full p-3 mb-1 text-center bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl text-xs font-semibold text-blue-700 dark:text-blue-300 shadow-2xs animate-fade-in">
-          🔐 Please sign in or register to complete your checkout.
+        <div className="w-full p-2.5 mb-1 text-center bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg text-xs font-semibold text-blue-700 dark:text-blue-300">
+          🔐 Please sign in or register to complete your order checkout.
         </div>
       )}
 
-      {/* Forgot Password Helper */}
       {currentState === "Forgot Password" && (
         <p className="text-xs text-center text-gray-500 dark:text-gray-400 -mt-2 mb-2">
           {forgotStep === "EMAIL_STEP"
@@ -191,6 +208,7 @@ const Login = () => {
           onChange={(e) => setName(e.target.value)}
           value={name}
           type="text"
+          autoComplete="off"
           className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-white outline-none focus:border-black dark:focus:border-white transition-all text-sm"
           placeholder="Full Name"
           required
@@ -203,6 +221,7 @@ const Login = () => {
           onChange={(e) => setEmail(e.target.value)}
           value={email}
           type="email"
+          autoComplete="off"
           className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-white outline-none focus:border-black dark:focus:border-white transition-all text-sm"
           placeholder="Email address"
           required
@@ -215,6 +234,7 @@ const Login = () => {
           onChange={(e) => setPassword(e.target.value)}
           value={password}
           type="password"
+          autoComplete="new-password"
           className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-white outline-none focus:border-black dark:focus:border-white transition-all text-sm"
           placeholder="Password"
           required
@@ -229,6 +249,7 @@ const Login = () => {
             value={otp}
             type="text"
             maxLength={6}
+            autoComplete="off"
             className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-white outline-none focus:border-black dark:focus:border-white transition-all text-center text-lg font-bold tracking-widest"
             placeholder="6-Digit Code"
             required
@@ -239,6 +260,7 @@ const Login = () => {
             value={newPassword}
             type="password"
             minLength={8}
+            autoComplete="new-password"
             className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-white outline-none focus:border-black dark:focus:border-white transition-all text-sm"
             placeholder="New Password (min 8 characters)"
             required
