@@ -14,25 +14,31 @@ const CartTotal = () => {
   } = useContext(ShopContext);
 
   const cartAmount = getCartAmount();
-  const currentShippingFee = getDeliveryFee
-    ? getDeliveryFee(cartAmount)
-    : cartAmount === 0
-    ? 0
-    : delivery_fee || 0;
 
+  // Dynamic shipping fee calculation
+  const currentShippingFee =
+    typeof getDeliveryFee === "function"
+      ? getDeliveryFee(cartAmount)
+      : cartAmount === 0 || shippingStatus === false
+      ? 0
+      : Number(delivery_fee) || 0;
+
+  // Exact total amount adding cart subtotal + active shipping fee
   const totalWithShipping =
     cartAmount === 0 ? 0 : cartAmount + currentShippingFee;
 
-  const isFree =
-    cartAmount > 0 &&
-    (!shippingStatus ||
-      delivery_fee === 0 ||
-      currentShippingFee === 0);
-
   const threshold = Number(freeShippingThreshold) || 0;
   const qualifiesForThreshold = threshold > 0 && cartAmount >= threshold;
-  const amountNeeded = threshold > 0 ? Math.max(0, threshold - cartAmount) : 0;
-  const progressPercent = threshold > 0 ? Math.min(100, (cartAmount / threshold) * 100) : 100;
+  const isFree =
+    cartAmount > 0 &&
+    (shippingStatus === false ||
+      Number(delivery_fee) === 0 ||
+      qualifiesForThreshold);
+
+  const amountNeeded =
+    threshold > 0 ? Math.max(0, threshold - cartAmount) : 0;
+  const progressPercent =
+    threshold > 0 ? Math.min(100, (cartAmount / threshold) * 100) : 100;
 
   return (
     <div className="w-full">
@@ -40,7 +46,7 @@ const CartTotal = () => {
         <Title text1={"CART"} text2={"TOTAL"} />
       </div>
 
-      {/* Free Shipping Progress Indicator */}
+      {/* Free Shipping Progress bar (Only when admin sets a threshold > 0) */}
       {threshold > 0 && cartAmount > 0 && (
         <div className="mb-4 p-3 bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 rounded-xl text-xs">
           <div className="flex items-center justify-between mb-1.5">
@@ -49,12 +55,14 @@ const CartTotal = () => {
                 <span>🎉 You qualify for <b>FREE Shipping!</b></span>
               ) : (
                 <span>
-                  Add <b>{currency}{amountNeeded.toFixed(2)}</b> more for <b>FREE Shipping!</b>
+                  Add <b>{currency}{amountNeeded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> more for <b>FREE Shipping!</b>
                 </span>
               )}
             </span>
             <span className="font-bold text-teal-700 dark:text-teal-400 text-[11px]">
-              {qualifiesForThreshold ? "100%" : `${Math.round(progressPercent)}%`}
+              {qualifiesForThreshold
+                ? "100%"
+                : `${Math.round(progressPercent)}%`}
             </span>
           </div>
           <div className="w-full bg-teal-200/60 dark:bg-teal-900/60 h-1.5 rounded-full overflow-hidden">

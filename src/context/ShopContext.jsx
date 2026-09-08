@@ -11,6 +11,23 @@ const ShopContextProvider = (props) => {
     localStorage.getItem("storeName") || "TrendyTek"
   );
 
+  // Dynamic Shipping / Delivery Fee Configuration (with instant localStorage fallback)
+  const [delivery_fee, setDeliveryFee] = useState(() => {
+    const saved = localStorage.getItem("storeDeliveryFee");
+    return saved !== null ? Number(saved) : 10;
+  });
+  const [freeShippingThreshold, setFreeShippingThreshold] = useState(() => {
+    const saved = localStorage.getItem("storeFreeThreshold");
+    return saved !== null ? Number(saved) : 0;
+  });
+  const [shippingStatus, setShippingStatus] = useState(() => {
+    const saved = localStorage.getItem("storeShippingStatus");
+    return saved !== null ? saved === "true" : true;
+  });
+  const [estimatedDelivery, setEstimatedDelivery] = useState(
+    localStorage.getItem("storeEstimatedDelivery") || "2 - 4 Business Days"
+  );
+
   // Active Payment Gateways Configuration
   const [paymentGateways, setPaymentGateways] = useState({
     paystack: true,
@@ -81,7 +98,6 @@ const ShopContextProvider = (props) => {
     }
   }, []);
 
-  const delivery_fee = 10;
   const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -122,37 +138,60 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // 3. Fetch store settings (currency, logo, storeName, bank details, footer, payment gateways)
+  // 3. Fetch store settings (currency, logo, storeName, shipping fee, bank details, footer, payment gateways)
   const getSettingsData = async () => {
     try {
       const response = await axios.get(backendUrl + "/api/settings/get");
       if (response && response.data && response.data.success && response.data.settings) {
-        if (response.data.settings.currency) {
-          setCurrency(response.data.settings.currency);
+        const s = response.data.settings;
+
+        if (s.currency) {
+          setCurrency(s.currency);
         }
-        if (response.data.settings.logo !== undefined) {
-          setLogo(response.data.settings.logo || "");
-          localStorage.setItem("storeLogo", response.data.settings.logo || "");
+        if (s.logo !== undefined) {
+          setLogo(s.logo || "");
+          localStorage.setItem("storeLogo", s.logo || "");
         }
-        if (response.data.settings.storeName) {
-          setStoreName(response.data.settings.storeName);
-          localStorage.setItem("storeName", response.data.settings.storeName);
+        if (s.storeName) {
+          setStoreName(s.storeName);
+          localStorage.setItem("storeName", s.storeName);
+        }
+
+        // Set dynamic shipping fee settings
+        if (s.deliveryFee !== undefined) {
+          const feeNum = Number(s.deliveryFee);
+          setDeliveryFee(feeNum);
+          localStorage.setItem("storeDeliveryFee", feeNum.toString());
+        }
+        if (s.freeShippingThreshold !== undefined) {
+          const threshNum = Number(s.freeShippingThreshold);
+          setFreeShippingThreshold(threshNum);
+          localStorage.setItem("storeFreeThreshold", threshNum.toString());
+        }
+        if (s.shippingStatus !== undefined) {
+          const statusBool = Boolean(s.shippingStatus);
+          setShippingStatus(statusBool);
+          localStorage.setItem("storeShippingStatus", statusBool.toString());
+        }
+        if (s.estimatedDelivery) {
+          setEstimatedDelivery(s.estimatedDelivery);
+          localStorage.setItem("storeEstimatedDelivery", s.estimatedDelivery);
         }
 
         // Set active payment gateways from backend
-        if (response.data.settings.paymentGateways) {
-          setPaymentGateways(response.data.settings.paymentGateways);
+        if (s.paymentGateways) {
+          setPaymentGateways(s.paymentGateways);
         }
 
         // Set dynamic bank transfer details
-        if (response.data.settings.bankName || response.data.settings.accountNumber) {
+        if (s.bankName || s.accountNumber) {
           setBankDetails({
-            bankName: response.data.settings.bankName || "Guaranty Trust Bank (GTBank)",
+            bankName: s.bankName || "Guaranty Trust Bank (GTBank)",
             accountName:
-              response.data.settings.accountName || "TRENDYTEK ENTERPRISES LTD",
-            accountNumber: response.data.settings.accountNumber || "0123456789",
+              s.accountName || "TRENDYTEK ENTERPRISES LTD",
+            accountNumber: s.accountNumber || "0123456789",
             bankInstructions:
-              response.data.settings.bankInstructions ||
+              s.bankInstructions ||
               "Please use your Order Name or Phone Number as payment narration.",
           });
         }
@@ -160,31 +199,44 @@ const ShopContextProvider = (props) => {
         // Set dynamic footer data
         setFooterData({
           footerDescription:
-            response.data.settings.footerDescription ||
+            s.footerDescription ||
             "Discover the best trends and everyday essentials. Premium quality, fast delivery, and dedicated customer care tailored for your lifestyle.",
-          companyTitle: response.data.settings.companyTitle || "COMPANY",
+          companyTitle: s.companyTitle || "COMPANY",
           companyLinks:
-            response.data.settings.companyLinks &&
-            response.data.settings.companyLinks.length > 0
-              ? response.data.settings.companyLinks
+            s.companyLinks && s.companyLinks.length > 0
+              ? s.companyLinks
               : [
                   { title: "Home", url: "/" },
                   { title: "About us", url: "/about" },
                   { title: "Contact", url: "/contact" },
                   { title: "Collection", url: "/collection" },
                 ],
-          contactTitle: response.data.settings.contactTitle || "GET IN TOUCH",
-          contactPhone:
-            response.data.settings.contactPhone || "+1-212-456-7890",
-          contactEmail:
-            response.data.settings.contactEmail || "contact@trendytek.com",
-          contactAddress: response.data.settings.contactAddress || "",
-          copyrightText: response.data.settings.copyrightText || "",
+          contactTitle: s.contactTitle || "GET IN TOUCH",
+          contactPhone: s.contactPhone || "+1-212-456-7890",
+          contactEmail: s.contactEmail || "contact@trendytek.com",
+          contactAddress: s.contactAddress || "",
+          copyrightText: s.copyrightText || "",
         });
       }
     } catch (error) {
       console.error("Settings load error:", error.message);
     }
+  };
+
+  // Helper: Compute current delivery fee based on cart subtotal and admin rules
+  const getDeliveryFee = (currentSubtotal = 0) => {
+    const amount = Number(currentSubtotal) || 0;
+    if (amount === 0) return 0;
+    if (shippingStatus === false) return 0;
+    const fee = Number(delivery_fee) || 0;
+    if (fee === 0) return 0;
+
+    // Free threshold only applies if threshold > 0
+    const threshold = Number(freeShippingThreshold) || 0;
+    if (threshold > 0 && amount >= threshold) {
+      return 0;
+    }
+    return fee;
   };
 
   // 4. Fetch logged in user profile
@@ -393,6 +445,15 @@ const ShopContextProvider = (props) => {
     setStoreName,
     categories,
     getCategoriesData,
+    delivery_fee,
+    setDeliveryFee,
+    freeShippingThreshold,
+    setFreeShippingThreshold,
+    shippingStatus,
+    setShippingStatus,
+    estimatedDelivery,
+    setEstimatedDelivery,
+    getDeliveryFee,
     paymentGateways,
     setPaymentGateways,
     bankDetails,
@@ -403,7 +464,6 @@ const ShopContextProvider = (props) => {
     setTheme,
     toggleTheme,
     getSettingsData,
-    delivery_fee,
     search,
     setSearch,
     showSearch,
