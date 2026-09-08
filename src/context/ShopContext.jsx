@@ -11,6 +11,15 @@ const ShopContextProvider = (props) => {
     localStorage.getItem("storeName") || "TrendyTek"
   );
 
+  // Active Payment Gateways Configuration
+  const [paymentGateways, setPaymentGateways] = useState({
+    paystack: true,
+    stripe: true,
+    bank_transfer: true,
+    crypto: true,
+    cod: true,
+  });
+
   // Bank Transfer Payment Details
   const [bankDetails, setBankDetails] = useState({
     bankName: "Guaranty Trust Bank (GTBank)",
@@ -113,7 +122,7 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // 3. Fetch store settings (currency, logo, storeName, bank details, footer)
+  // 3. Fetch store settings (currency, logo, storeName, bank details, footer, payment gateways)
   const getSettingsData = async () => {
     try {
       const response = await axios.get(backendUrl + "/api/settings/get");
@@ -128,6 +137,11 @@ const ShopContextProvider = (props) => {
         if (response.data.settings.storeName) {
           setStoreName(response.data.settings.storeName);
           localStorage.setItem("storeName", response.data.settings.storeName);
+        }
+
+        // Set active payment gateways from backend
+        if (response.data.settings.paymentGateways) {
+          setPaymentGateways(response.data.settings.paymentGateways);
         }
 
         // Set dynamic bank transfer details
@@ -335,23 +349,24 @@ const ShopContextProvider = (props) => {
 
   // ⚡ Smart Auto-Sync: Refreshes currency, settings & products in real-time without manual reload!
   useEffect(() => {
-    // 1. Tab Focus Auto-Sync: When user switches back to the store tab
     const handleFocus = () => {
       getSettingsData();
       getProductsData();
+      getCategoriesData();
     };
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         getSettingsData();
         getProductsData();
+        getCategoriesData();
       }
     });
 
-    // 2. Background Polling (Silently syncs every 15 seconds)
     const interval = setInterval(() => {
       getSettingsData();
       getProductsData();
+      getCategoriesData();
     }, 15000);
 
     return () => {
@@ -378,6 +393,8 @@ const ShopContextProvider = (props) => {
     setStoreName,
     categories,
     getCategoriesData,
+    paymentGateways,
+    setPaymentGateways,
     bankDetails,
     setBankDetails,
     footerData,

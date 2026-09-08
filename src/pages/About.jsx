@@ -24,11 +24,13 @@ const DEFAULT_FEATURES = [
 
 const About = () => {
   const { backendUrl } = useContext(ShopContext);
-  const [cachedImage, setCachedImage] = useState(
-    localStorage.getItem("aboutImage") || ""
-  );
+
+  // 🚀 Instant Caching: Load image directly from localStorage on first render with ZERO flashing
+  const [cachedImage, setCachedImage] = useState(() => {
+    return localStorage.getItem("aboutImage") || "";
+  });
   const [aboutData, setAboutData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!cachedImage);
   const [imageLoaded, setImageLoaded] = useState(Boolean(cachedImage));
 
   useEffect(() => {
@@ -37,11 +39,12 @@ const About = () => {
     const fetchAbout = async () => {
       try {
         const response = await axios.get(backendUrl + "/api/about/get");
-        if (isMounted && response.data.success && response.data.about) {
+        if (isMounted && response.data?.success && response.data?.about) {
           setAboutData(response.data.about);
           if (response.data.about.image) {
             setCachedImage(response.data.about.image);
             localStorage.setItem("aboutImage", response.data.about.image);
+            setImageLoaded(true);
           }
         }
       } catch (error) {
@@ -75,7 +78,7 @@ const About = () => {
       ? aboutData.features
       : DEFAULT_FEATURES;
 
-  // Banner image: Only shows your custom uploaded image with zero template fallback
+  // Banner image: Uses live image or instant cached image with zero template asset fallback
   const bannerImage = aboutData?.image || cachedImage || "";
 
   return (
@@ -95,6 +98,7 @@ const About = () => {
         {/* Banner Image Container */}
         <div className="flex justify-center w-full md:w-1/2">
           <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-xl rounded-2xl w-full max-w-[480px] min-h-[300px] flex items-center justify-center p-3">
+            {/* Show loader only if we have NO cached image yet */}
             {!bannerImage && loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 dark:bg-slate-900 animate-pulse">
                 <div className="w-8 h-8 border-black dark:border-white rounded-full border-3 border-t-transparent animate-spin"></div>
@@ -104,6 +108,7 @@ const About = () => {
               </div>
             )}
 
+            {/* Custom Uploaded Banner Image */}
             {bannerImage && (
               <img
                 key={bannerImage}
@@ -112,8 +117,17 @@ const About = () => {
                   imageLoaded ? "opacity-100" : "opacity-0"
                 }`}
                 src={bannerImage}
-                alt="About TrendyTek"
+                alt="About Us Banner"
               />
+            )}
+
+            {/* Placeholder if no image has been uploaded yet */}
+            {!bannerImage && !loading && (
+              <div className="flex flex-col items-center justify-center text-center p-6 text-gray-400">
+                <span className="text-4xl mb-2">🏢</span>
+                <p className="text-xs font-semibold">About Us Banner</p>
+                <p className="text-[10px] text-gray-400">Upload in Admin &rarr; Manage About</p>
+              </div>
             )}
           </div>
         </div>

@@ -7,9 +7,6 @@ import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
 
 const PlaceOrder = () => {
-  const [method, setMethod] = useState("paystack");
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
 
   const {
@@ -21,7 +18,12 @@ const PlaceOrder = () => {
     delivery_fee,
     products,
     bankDetails,
+    paymentGateways,
   } = useContext(ShopContext);
+
+  const [method, setMethod] = useState("paystack");
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -59,6 +61,28 @@ const PlaceOrder = () => {
       }));
     }
   }, [token, navigate]);
+
+  // ⚡ Auto-Fallback: Automatically select first active gateway if current method is disabled
+  useEffect(() => {
+    if (paymentGateways) {
+      const orderOfPreference = [
+        "paystack",
+        "stripe",
+        "bank_transfer",
+        "crypto",
+        "cod",
+      ];
+      // If currently selected method is turned off in admin, switch to first active one
+      if (paymentGateways[method] === false) {
+        const firstAvailable = orderOfPreference.find(
+          (m) => paymentGateways[m] !== false
+        );
+        if (firstAvailable) {
+          setMethod(firstAvailable);
+        }
+      }
+    }
+  }, [paymentGateways, method]);
 
   const onChangeHandler = (event) => {
     const name = event.target.name;
@@ -222,6 +246,20 @@ const PlaceOrder = () => {
     }
   };
 
+  // Determine active states for each gateway
+  const isPaystackActive = paymentGateways?.paystack !== false;
+  const isStripeActive = paymentGateways?.stripe !== false;
+  const isBankActive = paymentGateways?.bank_transfer !== false;
+  const isCryptoActive = paymentGateways?.crypto !== false;
+  const isCodActive = paymentGateways?.cod !== false;
+
+  const anyGatewayActive =
+    isPaystackActive ||
+    isStripeActive ||
+    isBankActive ||
+    isCryptoActive ||
+    isCodActive;
+
   return (
     <form
       onSubmit={onSubmitHandler}
@@ -336,239 +374,255 @@ const PlaceOrder = () => {
         <div className="mt-12">
           <Title text1={"PAYMENT"} text2={"METHOD"} />
 
-          {/* Payment Method Cards */}
-          <div className="flex flex-col gap-3 mt-4">
-            {/* 1. PAYSTACK */}
-            <div
-              onClick={() => setMethod("paystack")}
-              className={`p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
-                method === "paystack"
-                  ? "border-teal-500 bg-teal-50/70 dark:bg-teal-950/20 shadow-sm"
-                  : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      method === "paystack"
-                        ? "border-teal-500 bg-teal-500"
-                        : "border-gray-300 dark:border-slate-600"
-                    }`}
-                  >
-                    {method === "paystack" && (
-                      <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
-                    )}
-                  </span>
-                  <div>
-                    <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-                      <span>💳</span> Paystack (Cards / Transfer / USSD)
-                    </p>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Mastercard, Visa, Verve, Bank Transfer & Apple Pay
-                    </p>
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 text-[10px] font-bold bg-teal-100 dark:bg-teal-900 text-teal-700 dark:text-teal-300 rounded">
-                  Popular
-                </span>
-              </div>
+          {!anyGatewayActive ? (
+            <div className="p-4 mt-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 rounded-xl text-xs">
+              ⚠️ Payment processing is temporarily undergoing maintenance. Please check back shortly.
             </div>
-
-            {/* 2. STRIPE */}
-            <div
-              onClick={() => setMethod("stripe")}
-              className={`p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
-                method === "stripe"
-                  ? "border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/20 shadow-sm"
-                  : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      method === "stripe"
-                        ? "border-indigo-500 bg-indigo-500"
-                        : "border-gray-300 dark:border-slate-600"
-                    }`}
-                  >
-                    {method === "stripe" && (
-                      <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
-                    )}
-                  </span>
-                  <div>
-                    <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-                      <span>💳</span> Stripe (Credit / Debit Card)
-                    </p>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      International Visa, Mastercard & Amex
-                    </p>
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded">
-                  Global
-                </span>
-              </div>
-            </div>
-
-            {/* 3. DIRECT BANK TRANSFER */}
-            <div
-              onClick={() => setMethod("bank_transfer")}
-              className={`p-4 border rounded-xl cursor-pointer transition-all ${
-                method === "bank_transfer"
-                  ? "border-blue-600 bg-blue-50/70 dark:bg-blue-950/20 shadow-sm"
-                  : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      method === "bank_transfer"
-                        ? "border-blue-600 bg-blue-600"
-                        : "border-gray-300 dark:border-slate-600"
-                    }`}
-                  >
-                    {method === "bank_transfer" && (
-                      <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
-                    )}
-                  </span>
-                  <div>
-                    <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-                      <span>🏛️</span> Direct Bank Transfer
-                    </p>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Transfer directly to our store bank account
-                    </p>
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded">
-                  Instant Details
-                </span>
-              </div>
-
-              {/* Bank Details Box */}
-              {method === "bank_transfer" && (
-                <div className="mt-3.5 p-3.5 bg-white dark:bg-slate-900 rounded-lg border border-blue-200 dark:border-blue-900/50 text-xs flex flex-col gap-2 animate-fade-in">
+          ) : (
+            /* Dynamic Payment Gateway Selection Cards */
+            <div className="flex flex-col gap-3 mt-4">
+              {/* 1. PAYSTACK */}
+              {isPaystackActive && (
+                <div
+                  onClick={() => setMethod("paystack")}
+                  className={`p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
+                    method === "paystack"
+                      ? "border-teal-500 bg-teal-50/70 dark:bg-teal-950/20 shadow-sm"
+                      : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-500 dark:text-gray-400">Bank Name:</span>
-                    <span className="font-bold text-gray-900 dark:text-white">
-                      {bankDetails?.bankName || "Guaranty Trust Bank (GTBank)"}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500 dark:text-gray-400">Account Name:</span>
-                    <span className="font-bold text-gray-900 dark:text-white">
-                      {bankDetails?.accountName || "TRENDYTEK ENTERPRISES LIMITED"}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-gray-50 dark:bg-slate-800 p-2 rounded-md">
-                    <div>
-                      <span className="block text-[10px] text-gray-500 dark:text-gray-400">
-                        Account Number:
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          method === "paystack"
+                            ? "border-teal-500 bg-teal-500"
+                            : "border-gray-300 dark:border-slate-600"
+                        }`}
+                      >
+                        {method === "paystack" && (
+                          <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
+                        )}
                       </span>
-                      <span className="font-mono text-sm font-extrabold text-blue-600 dark:text-blue-400 tracking-wider">
-                        {bankDetails?.accountNumber || "0123456789"}
-                      </span>
+                      <div>
+                        <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                          <span>💳</span> Paystack (Cards / Transfer / USSD)
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          Mastercard, Visa, Verve, Bank Transfer & Apple Pay
+                        </p>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCopyAccount(bankDetails?.accountNumber || "0123456789");
-                      }}
-                      className="px-2.5 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded transition-all cursor-pointer"
-                    >
-                      {copied ? "✓ Copied" : "📋 Copy"}
-                    </button>
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-teal-100 dark:bg-teal-900 text-teal-700 dark:text-teal-300 rounded">
+                      Popular
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* 2. STRIPE */}
+              {isStripeActive && (
+                <div
+                  onClick={() => setMethod("stripe")}
+                  className={`p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
+                    method === "stripe"
+                      ? "border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/20 shadow-sm"
+                      : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          method === "stripe"
+                            ? "border-indigo-500 bg-indigo-500"
+                            : "border-gray-300 dark:border-slate-600"
+                        }`}
+                      >
+                        {method === "stripe" && (
+                          <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
+                        )}
+                      </span>
+                      <div>
+                        <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                          <span>💳</span> Stripe (Credit / Debit Card)
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          International Visa, Mastercard & Amex
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded">
+                      Global
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. DIRECT BANK TRANSFER */}
+              {isBankActive && (
+                <div
+                  onClick={() => setMethod("bank_transfer")}
+                  className={`p-4 border rounded-xl cursor-pointer transition-all ${
+                    method === "bank_transfer"
+                      ? "border-blue-600 bg-blue-50/70 dark:bg-blue-950/20 shadow-sm"
+                      : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          method === "bank_transfer"
+                            ? "border-blue-600 bg-blue-600"
+                            : "border-gray-300 dark:border-slate-600"
+                        }`}
+                      >
+                        {method === "bank_transfer" && (
+                          <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
+                        )}
+                      </span>
+                      <div>
+                        <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                          <span>🏛️</span> Direct Bank Transfer
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          Transfer directly to our store bank account
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded">
+                      Instant Details
+                    </span>
                   </div>
 
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 italic mt-0.5">
-                    💡 {bankDetails?.bankInstructions || "Please use your Order Name as payment reference."}
-                  </p>
+                  {/* Bank Details Box */}
+                  {method === "bank_transfer" && (
+                    <div className="mt-3.5 p-3.5 bg-white dark:bg-slate-900 rounded-lg border border-blue-200 dark:border-blue-900/50 text-xs flex flex-col gap-2 animate-fade-in">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">Bank Name:</span>
+                        <span className="font-bold text-gray-900 dark:text-white">
+                          {bankDetails?.bankName || "Guaranty Trust Bank (GTBank)"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">Account Name:</span>
+                        <span className="font-bold text-gray-900 dark:text-white">
+                          {bankDetails?.accountName || "TRENDYTEK ENTERPRISES LIMITED"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-gray-50 dark:bg-slate-800 p-2 rounded-md">
+                        <div>
+                          <span className="block text-[10px] text-gray-500 dark:text-gray-400">
+                            Account Number:
+                          </span>
+                          <span className="font-mono text-sm font-extrabold text-blue-600 dark:text-blue-400 tracking-wider">
+                            {bankDetails?.accountNumber || "0123456789"}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyAccount(bankDetails?.accountNumber || "0123456789");
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded transition-all cursor-pointer"
+                        >
+                          {copied ? "✓ Copied" : "📋 Copy"}
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 italic mt-0.5">
+                        💡 {bankDetails?.bankInstructions || "Please use your Order Name as payment reference."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 4. CRYPTOCURRENCY */}
+              {isCryptoActive && (
+                <div
+                  onClick={() => setMethod("crypto")}
+                  className={`flex items-center justify-between p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
+                    method === "crypto"
+                      ? "border-amber-500 bg-amber-50/70 dark:bg-amber-950/20 shadow-sm"
+                      : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                        method === "crypto"
+                          ? "border-amber-500 bg-amber-500"
+                          : "border-gray-300 dark:border-slate-600"
+                      }`}
+                    >
+                      {method === "crypto" && (
+                        <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
+                      )}
+                    </span>
+                    <div>
+                      <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                        <span>🪙</span> Cryptocurrency (USDT, BTC, ETH)
+                      </p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                        Instant checkout with 300+ coins
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded">
+                      USDT
+                    </span>
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 rounded">
+                      BTC
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* 5. CASH ON DELIVERY */}
+              {isCodActive && (
+                <div
+                  onClick={() => setMethod("cod")}
+                  className={`flex items-center justify-between p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
+                    method === "cod"
+                      ? "border-black dark:border-white bg-gray-100 dark:bg-slate-800 shadow-sm"
+                      : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                        method === "cod"
+                          ? "border-black dark:border-white bg-black dark:bg-white"
+                          : "border-gray-300 dark:border-slate-600"
+                      }`}
+                    >
+                      {method === "cod" && (
+                        <span className="w-1.5 h-1.5 bg-white dark:bg-black rounded-full"></span>
+                      )}
+                    </span>
+                    <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white">
+                      💵 CASH ON DELIVERY
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
-
-            {/* 4. CRYPTOCURRENCY */}
-            <div
-              onClick={() => setMethod("crypto")}
-              className={`flex items-center justify-between p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
-                method === "crypto"
-                  ? "border-amber-500 bg-amber-50/70 dark:bg-amber-950/20 shadow-sm"
-                  : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                    method === "crypto"
-                      ? "border-amber-500 bg-amber-500"
-                      : "border-gray-300 dark:border-slate-600"
-                  }`}
-                >
-                  {method === "crypto" && (
-                    <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
-                  )}
-                </span>
-                <div>
-                  <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-                    <span>🪙</span> Cryptocurrency (USDT, BTC, ETH)
-                  </p>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                    Instant checkout with 300+ coins
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded">
-                  USDT
-                </span>
-                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 rounded">
-                  BTC
-                </span>
-              </div>
-            </div>
-
-            {/* 5. CASH ON DELIVERY */}
-            <div
-              onClick={() => setMethod("cod")}
-              className={`flex items-center justify-between p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-all ${
-                method === "cod"
-                  ? "border-black dark:border-white bg-gray-100 dark:bg-slate-800 shadow-sm"
-                  : "border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                    method === "cod"
-                      ? "border-black dark:border-white bg-black dark:bg-white"
-                      : "border-gray-300 dark:border-slate-600"
-                  }`}
-                >
-                  {method === "cod" && (
-                    <span className="w-1.5 h-1.5 bg-white dark:bg-black rounded-full"></span>
-                  )}
-                </span>
-                <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white">
-                  💵 CASH ON DELIVERY
-                </p>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Place Order CTA Button */}
           <div className="w-full text-end mt-8">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !anyGatewayActive}
               className={`w-full sm:w-auto px-10 py-3.5 text-xs sm:text-sm font-bold tracking-wider text-white uppercase transition-all bg-black dark:bg-white dark:text-black rounded-xl shadow-md hover:bg-gray-800 dark:hover:bg-gray-200 active:scale-95 cursor-pointer ${
-                loading ? "opacity-60 cursor-not-allowed" : ""
+                loading || !anyGatewayActive ? "opacity-60 cursor-not-allowed" : ""
               }`}
             >
               {loading ? "Processing Order..." : "PLACE ORDER &rarr;"}
