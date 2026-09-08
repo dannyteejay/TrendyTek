@@ -16,9 +16,14 @@ const PlaceOrder = () => {
     setCartItems,
     getCartAmount,
     delivery_fee,
+    getDeliveryFee,
+    shippingZones,
+    selectedDestination,
+    setSelectedDestination,
     products,
     bankDetails,
     paymentGateways,
+    currency,
   } = useContext(ShopContext);
 
   const [method, setMethod] = useState("paystack");
@@ -31,7 +36,7 @@ const PlaceOrder = () => {
     email: "",
     street: "",
     city: "",
-    state: "",
+    state: selectedDestination || "",
     zipcode: "",
     country: "",
     phone: "",
@@ -72,7 +77,6 @@ const PlaceOrder = () => {
         "crypto",
         "cod",
       ];
-      // If currently selected method is turned off in admin, switch to first active one
       if (paymentGateways[method] === false) {
         const firstAvailable = orderOfPreference.find(
           (m) => paymentGateways[m] !== false
@@ -88,6 +92,13 @@ const PlaceOrder = () => {
     const name = event.target.name;
     const value = event.target.value;
     setFormData((data) => ({ ...data, [name]: value }));
+
+    // Real-time location sync for distance-based shipping fee
+    if (name === "state" || name === "city" || name === "country") {
+      if (setSelectedDestination) {
+        setSelectedDestination(value);
+      }
+    }
   };
 
   const handleCopyAccount = (accountNo) => {
@@ -130,10 +141,15 @@ const PlaceOrder = () => {
         return;
       }
 
+      const cartSubtotal = getCartAmount();
+      const shippingAmount = getDeliveryFee
+        ? getDeliveryFee(cartSubtotal, formData.state || formData.city)
+        : delivery_fee || 0;
+
       let orderData = {
         address: formData,
         items: orderItems,
-        amount: getCartAmount() + (delivery_fee || 10),
+        amount: cartSubtotal + shippingAmount,
       };
 
       setLoading(true);
@@ -246,7 +262,6 @@ const PlaceOrder = () => {
     }
   };
 
-  // Determine active states for each gateway
   const isPaystackActive = paymentGateways?.paystack !== false;
   const isStripeActive = paymentGateways?.stripe !== false;
   const isBankActive = paymentGateways?.bank_transfer !== false;
@@ -312,6 +327,34 @@ const PlaceOrder = () => {
           placeholder="Street address"
         />
 
+        {/* Distance / Destination Zone Quick Selector */}
+        {Array.isArray(shippingZones) && shippingZones.length > 0 && (
+          <div className="flex flex-col gap-1.5 p-3.5 bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700">
+            <label className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center justify-between">
+              <span>🚚 Delivery Destination / Distance Zone:</span>
+              <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold">
+                Auto-calculated
+              </span>
+            </label>
+            <select
+              value={formData.state}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFormData((prev) => ({ ...prev, state: val }));
+                if (setSelectedDestination) setSelectedDestination(val);
+              }}
+              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg text-xs sm:text-sm font-semibold text-gray-900 dark:text-white outline-none focus:border-black dark:focus:border-white cursor-pointer"
+            >
+              <option value="">-- Select Your Delivery Location / State --</option>
+              {shippingZones.map((z, idx) => (
+                <option key={idx} value={z.regions?.[0] || z.name}>
+                  {z.name} ({currency}{Number(z.fee).toLocaleString()}) - {z.estimatedDelivery}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex gap-3">
           <input
             required
@@ -368,7 +411,7 @@ const PlaceOrder = () => {
       {/* ---------- RIGHT SIDE: TOTAL & PAYMENT METHOD ---------- */}
       <div className="mt-8 sm:mt-0 w-full sm:max-w-[480px]">
         <div className="mt-2 min-w-80">
-          <CartTotal />
+          <CartTotal destination={formData.state || formData.city} />
         </div>
 
         <div className="mt-12">

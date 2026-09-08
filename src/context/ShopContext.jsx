@@ -11,10 +11,10 @@ const ShopContextProvider = (props) => {
     localStorage.getItem("storeName") || "TrendyTek"
   );
 
-  // Dynamic Shipping / Delivery Fee Configuration (with instant localStorage fallback)
+  // Dynamic Shipping & Distance Zones Configuration
   const [delivery_fee, setDeliveryFee] = useState(() => {
     const saved = localStorage.getItem("storeDeliveryFee");
-    return saved !== null ? Number(saved) : 10;
+    return saved !== null ? Number(saved) : 2500;
   });
   const [freeShippingThreshold, setFreeShippingThreshold] = useState(() => {
     const saved = localStorage.getItem("storeFreeThreshold");
@@ -26,6 +26,10 @@ const ShopContextProvider = (props) => {
   });
   const [estimatedDelivery, setEstimatedDelivery] = useState(
     localStorage.getItem("storeEstimatedDelivery") || "2 - 4 Business Days"
+  );
+  const [shippingZones, setShippingZones] = useState([]);
+  const [selectedDestination, setSelectedDestination] = useState(
+    localStorage.getItem("customerSelectedState") || ""
   );
 
   // Active Payment Gateways Configuration
@@ -138,7 +142,7 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // 3. Fetch store settings (currency, logo, storeName, shipping fee, bank details, footer, payment gateways)
+  // 3. Fetch store settings (currency, logo, storeName, shipping zones, bank details, footer, payment gateways)
   const getSettingsData = async () => {
     try {
       const response = await axios.get(backendUrl + "/api/settings/get");
@@ -157,7 +161,7 @@ const ShopContextProvider = (props) => {
           localStorage.setItem("storeName", s.storeName);
         }
 
-        // Set dynamic shipping fee settings
+        // Set dynamic shipping fee & zones
         if (s.deliveryFee !== undefined) {
           const feeNum = Number(s.deliveryFee);
           setDeliveryFee(feeNum);
@@ -176,6 +180,9 @@ const ShopContextProvider = (props) => {
         if (s.estimatedDelivery) {
           setEstimatedDelivery(s.estimatedDelivery);
           localStorage.setItem("storeEstimatedDelivery", s.estimatedDelivery);
+        }
+        if (Array.isArray(s.shippingZones)) {
+          setShippingZones(s.shippingZones);
         }
 
         // Set active payment gateways from backend
@@ -212,8 +219,10 @@ const ShopContextProvider = (props) => {
                   { title: "Collection", url: "/collection" },
                 ],
           contactTitle: s.contactTitle || "GET IN TOUCH",
-          contactPhone: s.contactPhone || "+1-212-456-7890",
-          contactEmail: s.contactEmail || "contact@trendytek.com",
+          contactPhone:
+            s.contactPhone || "+1-212-456-7890",
+          contactEmail:
+            s.contactEmail || "contact@trendytek.com",
           contactAddress: s.contactAddress || "",
           copyrightText: s.copyrightText || "",
         });
@@ -223,20 +232,80 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // Helper: Compute current delivery fee based on cart subtotal and admin rules
-  const getDeliveryFee = (currentSubtotal = 0) => {
-    const amount = Number(currentSubtotal) || 0;
-    if (amount === 0) return 0;
+  // Helper: Distance / Location-Based Shipping Fee Calculator
+  const getDeliveryFee = (currentSubtotal = 0, customLocation = "") => {
+    const subtotal = Number(currentSubtotal) || 0;
+    if (subtotal === 0) return 0;
     if (shippingStatus === false) return 0;
-    const fee = Number(delivery_fee) || 0;
-    if (fee === 0) return 0;
 
-    // Free threshold only applies if threshold > 0
-    const threshold = Number(freeShippingThreshold) || 0;
-    if (threshold > 0 && amount >= threshold) {
+    const locationQuery = (customLocation || selectedDestination || "").trim().toLowerCase();
+
+    // 1. Check if matching any custom shipping zone
+    if (locationQuery && Array.isArray(shippingZones) && shippingZones.length > 0) {
+      const matchedZone = shippingZones.find((z) => {
+        if (z.name?.toLowerCase().includes(locationQuery)) return true;
+        if (Array.isArray(z.regions)) {
+          return z.regions.some((r) => {
+            const cleanReg = r.toLowerCase().trim();
+            return (
+              locationQuery.includes(cleanReg) || cleanReg.includes(locationQuery)
+            );
+          });
+        }
+        return false;
+      });
+
+      if (matchedZone) {
+        const zoneFee = Number(matchedZone.fee) || 0;
+        const zoneThreshold = Number(matchedZone.freeShippingThreshold) || 0;
+        if (zoneThreshold > 0 && subtotal >= zoneThreshold) {
+          return 0; // Qualified for zone free shipping!
+        }
+        return zoneFee;
+      }
+    }
+
+    // 2. Fallback to standard delivery fee
+    const fee = Number(delivery_fee) || 0;
+    const fallbackThreshold = Number(freeShippingThreshold) || 0;
+    if (fallbackThreshold > 0 && subtotal >= fallbackThreshold) {
       return 0;
     }
     return fee;
+  };
+
+  // Helper: Get matching zone information (name & delivery timeframe)
+  const getActiveZoneInfo = (customLocation = "") => {
+    const locationQuery = (customLocation || selectedDestination || "").trim().toLowerCase();
+
+    if (locationQuery && Array.isArray(shippingZones) && shippingZones.length > 0) {
+      const matched = shippingZones.find((z) => {
+        if (z.name?.toLowerCase().includes(locationQuery)) return true;
+        if (Array.isArray(z.regions)) {
+          return z.regions.some((r) => {
+            const cleanReg = r.toLowerCase().trim();
+            return (
+              locationQuery.includes(cleanReg) || cleanReg.includes(locationQuery)
+            );
+          });
+        }
+        return false;
+      });
+
+      if (matched) {
+        return {
+          name: matched.name,
+          estimatedDelivery: matched.estimatedDelivery || estimatedDelivery,
+          freeThreshold: Number(matched.freeShippingThreshold) || 0,
+        };
+      }
+    }
+
+    return {
+      name: "Standard Shipping",
+      estimatedDelivery: estimatedDelivery,
+      freeThreshold: Number(freeShippingThreshold) || 0,
+    };
   };
 
   // 4. Fetch logged in user profile
@@ -447,6 +516,10 @@ const ShopContextProvider = (props) => {
     getCategoriesData,
     delivery_fee,
     setDeliveryFee,
+    shippingZones,
+    setShippingZones,
+    selectedDestination,
+    setSelectedDestination,
     freeShippingThreshold,
     setFreeShippingThreshold,
     shippingStatus,
@@ -454,6 +527,7 @@ const ShopContextProvider = (props) => {
     estimatedDelivery,
     setEstimatedDelivery,
     getDeliveryFee,
+    getActiveZoneInfo,
     paymentGateways,
     setPaymentGateways,
     bankDetails,

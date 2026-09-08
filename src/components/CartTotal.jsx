@@ -2,43 +2,52 @@ import React, { useContext } from "react";
 import { ShopContext } from "../context/ShopContext";
 import Title from "./Title";
 
-const CartTotal = () => {
+const CartTotal = ({ destination }) => {
   const {
     currency,
     delivery_fee,
     freeShippingThreshold,
     shippingStatus,
-    estimatedDelivery,
+    selectedDestination,
     getCartAmount,
     getDeliveryFee,
+    getActiveZoneInfo,
   } = useContext(ShopContext);
 
   const cartAmount = getCartAmount();
+  const activeLocation = destination || selectedDestination || "";
 
-  // Dynamic shipping fee calculation
+  // Dynamic shipping fee calculation based on location/distance
   const currentShippingFee =
     typeof getDeliveryFee === "function"
-      ? getDeliveryFee(cartAmount)
+      ? getDeliveryFee(cartAmount, activeLocation)
       : cartAmount === 0 || shippingStatus === false
       ? 0
       : Number(delivery_fee) || 0;
 
-  // Exact total amount adding cart subtotal + active shipping fee
+  const zoneInfo =
+    typeof getActiveZoneInfo === "function"
+      ? getActiveZoneInfo(activeLocation)
+      : {
+          name: "Standard Shipping",
+          estimatedDelivery: "2 - 4 Business Days",
+          freeThreshold: Number(freeShippingThreshold) || 0,
+        };
+
+  // Exact total amount: Subtotal + Location-based shipping fee
   const totalWithShipping =
     cartAmount === 0 ? 0 : cartAmount + currentShippingFee;
 
-  const threshold = Number(freeShippingThreshold) || 0;
+  const threshold = Number(zoneInfo.freeThreshold) || Number(freeShippingThreshold) || 0;
   const qualifiesForThreshold = threshold > 0 && cartAmount >= threshold;
   const isFree =
     cartAmount > 0 &&
     (shippingStatus === false ||
-      Number(delivery_fee) === 0 ||
+      currentShippingFee === 0 ||
       qualifiesForThreshold);
 
-  const amountNeeded =
-    threshold > 0 ? Math.max(0, threshold - cartAmount) : 0;
-  const progressPercent =
-    threshold > 0 ? Math.min(100, (cartAmount / threshold) * 100) : 100;
+  const amountNeeded = threshold > 0 ? Math.max(0, threshold - cartAmount) : 0;
+  const progressPercent = threshold > 0 ? Math.min(100, (cartAmount / threshold) * 100) : 100;
 
   return (
     <div className="w-full">
@@ -46,7 +55,7 @@ const CartTotal = () => {
         <Title text1={"CART"} text2={"TOTAL"} />
       </div>
 
-      {/* Free Shipping Progress bar (Only when admin sets a threshold > 0) */}
+      {/* Free Shipping Progress bar (Only when admin configures a threshold > 0) */}
       {threshold > 0 && cartAmount > 0 && (
         <div className="mb-4 p-3 bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 rounded-xl text-xs">
           <div className="flex items-center justify-between mb-1.5">
@@ -90,10 +99,17 @@ const CartTotal = () => {
         {/* Shipping Fee */}
         <div className="flex justify-between items-center py-1 border-b border-gray-200 dark:border-slate-800">
           <div>
-            <p>Shipping Fee</p>
-            {estimatedDelivery && (
+            <p className="flex items-center gap-1.5">
+              <span>Shipping Fee</span>
+              {zoneInfo.name && (
+                <span className="text-[10px] px-1.5 py-0.2 bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-400 rounded font-medium truncate max-w-[150px]">
+                  {zoneInfo.name}
+                </span>
+              )}
+            </p>
+            {zoneInfo.estimatedDelivery && (
               <span className="block text-[10px] text-gray-400">
-                {estimatedDelivery}
+                ⏱️ {zoneInfo.estimatedDelivery}
               </span>
             )}
           </div>
@@ -122,7 +138,7 @@ const CartTotal = () => {
         {/* Total Amount */}
         <div className="flex justify-between py-2 text-sm sm:text-base font-bold text-gray-900 dark:text-white">
           <b>Total Amount</b>
-          <b className="text-base sm:text-lg">
+          <b className="text-base sm:text-lg text-gray-900 dark:text-white">
             {currency}
             {totalWithShipping.toLocaleString(undefined, {
               minimumFractionDigits: 2,
