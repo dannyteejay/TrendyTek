@@ -11,6 +11,12 @@ const Orders = () => {
   const [expandedBankOrder, setExpandedBankOrder] = useState(null);
   const [copied, setCopied] = useState(false);
 
+  // "I Have Paid" Modal State
+  const [selectedOrderToPay, setSelectedOrderToPay] = useState(null);
+  const [senderName, setSenderName] = useState("");
+  const [transferNote, setTransferNote] = useState("");
+  const [submittingPaid, setSubmittingPaid] = useState(false);
+
   const loadOrderData = async () => {
     try {
       if (!token) return null;
@@ -28,6 +34,8 @@ const Orders = () => {
           order.items.map((item) => {
             item["status"] = order.status;
             item["payment"] = order.payment;
+            item["customerClaimedPaid"] = order.customerClaimedPaid;
+            item["senderName"] = order.senderName;
             item["paymentMethod"] = order.paymentMethod;
             item["date"] = order.date;
             item["orderId"] = order._id;
@@ -53,8 +61,42 @@ const Orders = () => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     setCopied(true);
-    toast.info("Account number copied!");
+    toast.info("Account number copied to clipboard!");
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Submit "I Have Paid" confirmation
+  const handleConfirmPaid = async (e) => {
+    e.preventDefault();
+    if (!selectedOrderToPay) return;
+
+    setSubmittingPaid(true);
+    try {
+      const response = await axios.post(
+        backendUrl + "/api/order/mark-paid",
+        {
+          orderId: selectedOrderToPay,
+          senderName: senderName.trim(),
+          transferNote: transferNote.trim(),
+        },
+        { headers: { token } }
+      );
+
+      if (response.data.success) {
+        toast.success("🎉 Transfer confirmation submitted! Admin will verify shortly.");
+        setSelectedOrderToPay(null);
+        setSenderName("");
+        setTransferNote("");
+        loadOrderData(); // refresh live
+      } else {
+        toast.error(response.data.message || "Failed to submit transfer status");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.message || "Error submitting transfer confirmation");
+    } finally {
+      setSubmittingPaid(false);
+    }
   };
 
   return (
@@ -123,8 +165,8 @@ const Orders = () => {
                 </div>
               </div>
 
-              {/* Middle Column: Payment Status Badge */}
-              <div className="flex flex-col gap-1 md:w-1/3">
+              {/* Middle Column: Payment Status Badge & "I Have Paid" Action */}
+              <div className="flex flex-col gap-2 md:w-1/3">
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
                   Payment Status
                 </span>
@@ -135,11 +177,31 @@ const Orders = () => {
                     <span>Paid / Transfer Confirmed ✅</span>
                   </div>
                 ) : item.paymentMethod === "Bank Transfer" ? (
-                  <div className="flex flex-col gap-1">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 font-bold text-xs rounded-full w-fit">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                      <span>Awaiting Transfer Verification ⏳</span>
-                    </div>
+                  <div className="flex flex-col gap-2">
+                    {item.customerClaimedPaid ? (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 font-bold text-xs rounded-full w-fit">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                        <span>Transfer Reported — Awaiting Admin Verification ⏳</span>
+                      </div>
+                    ) : (
+                      /* "I Have Paid" Action Button */
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedOrderToPay(item.orderId);
+                            const savedName = localStorage.getItem("userName") || "";
+                            setSenderName(savedName);
+                          }}
+                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 w-fit"
+                        >
+                          <span>💸</span> I Have Paid (Confirm Transfer)
+                        </button>
+                        <span className="text-[11px] text-gray-400">
+                          Click above after transferring to our bank account.
+                        </span>
+                      </div>
+                    )}
 
                     <button
                       type="button"
@@ -148,16 +210,16 @@ const Orders = () => {
                           expandedBankOrder === item.orderId ? null : item.orderId
                         )
                       }
-                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold text-left mt-0.5 cursor-pointer"
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold text-left cursor-pointer"
                     >
                       {expandedBankOrder === item.orderId
                         ? "▲ Hide Bank Account Details"
-                        : "▼ View Bank Details to Complete Transfer"}
+                        : "▼ View Bank Account Details"}
                     </button>
 
                     {/* Expandable Bank Details Modal/Box */}
                     {expandedBankOrder === item.orderId && (
-                      <div className="p-3 mt-1 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl text-xs flex flex-col gap-1.5 animate-fade-in">
+                      <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl text-xs flex flex-col gap-1.5 animate-fade-in">
                         <div className="flex justify-between">
                           <span className="text-gray-500 dark:text-gray-400">Bank:</span>
                           <span className="font-bold text-gray-900 dark:text-white">
@@ -224,6 +286,80 @@ const Orders = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* "I Have Paid" Confirmation Pop-up Modal */}
+      {selectedOrderToPay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in backdrop-blur-xs">
+          <form
+            onSubmit={handleConfirmPaid}
+            className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-2xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-slate-800 flex flex-col gap-4"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-slate-800">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <span>💸</span> Confirm Bank Transfer
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedOrderToPay(null)}
+                className="text-gray-400 hover:text-black dark:hover:text-white font-bold text-xl cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+              Please enter your name or transfer reference so our finance team can verify and approve your payment immediately.
+            </p>
+
+            {/* Sender Account Name */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                Sender Account Name / Name on Transfer *
+              </label>
+              <input
+                type="text"
+                required
+                value={senderName}
+                onChange={(e) => setSenderName(e.target.value)}
+                placeholder="e.g. John Doe"
+                className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-xl text-sm outline-none focus:border-black dark:focus:border-white font-semibold"
+              />
+            </div>
+
+            {/* Narration / Reference Note */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                Payment Narration / Reference (Optional)
+              </label>
+              <input
+                type="text"
+                value={transferNote}
+                onChange={(e) => setTransferNote(e.target.value)}
+                placeholder="e.g. Order payment via GTBank app"
+                className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-xl text-sm outline-none focus:border-black dark:focus:border-white"
+              />
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex gap-3 pt-3 border-t border-gray-100 dark:border-slate-800 mt-2">
+              <button
+                type="button"
+                onClick={() => setSelectedOrderToPay(null)}
+                className="flex-1 py-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 font-bold text-gray-800 dark:text-gray-200 text-xs sm:text-sm rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submittingPaid}
+                className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 font-bold text-white text-xs sm:text-sm rounded-xl cursor-pointer shadow-md"
+              >
+                {submittingPaid ? "Submitting..." : "Submit Confirmation"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>
