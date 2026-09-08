@@ -34,26 +34,26 @@ const Footer = () => {
     <div className="transition-colors duration-300">
       <div className="flex flex-col sm:grid grid-cols-[3fr_1fr_1fr] gap-14 my-10 mt-40 text-sm">
         {/* Left Column: Dynamic Store Logo & Description */}
-        <div>
-          <Link to="/" className="inline-block">
-            {logo ? (
-              <img
-                src={logo}
-                className="mb-5 h-10 sm:h-12 md:h-14 w-auto max-w-[220px] sm:max-w-[280px] md:max-w-[340px] object-contain dark:brightness-0 dark:invert transition-all"
-                alt={storeName || "Store Logo"}
-              />
-            ) : (
-              <img
-                src={assets.logo}
-                className="object-contain w-36 sm:w-44 md:w-52 mb-5 dark:brightness-0 dark:invert transition-all"
-                alt="Store Logo"
-              />
-            )}
-          </Link>
-          <p className="w-full text-gray-600 dark:text-gray-300 md:w-2/3 leading-relaxed whitespace-pre-line">
-            {description}
-          </p>
-        </div>
+<div>
+  <Link to="/" className="inline-block">
+    {logo ? (
+      <img
+        src={logo}
+        className="object-contain h-10 sm:h-12 md:h-14 w-auto max-w-[220px] sm:max-w-[280px] md:max-w-[340px] mb-5 dark:brightness-0 dark:invert transition-all"
+        alt={storeName || "TrendyTek"}
+      />
+    ) : (
+      <div className="flex items-center gap-1 select-none mb-5">
+        <span className="text-2xl sm:text-3xl font-black tracking-tight text-gray-900 dark:text-white uppercase font-sans">
+          TRENDY<span className="text-blue-600 dark:text-blue-400">TEK</span>
+        </span>
+      </div>
+    )}
+  </Link>
+  <p className="w-full md:w-2/3 leading-relaxed text-gray-500 dark:text-gray-400">
+    {footerData?.footerDescription || defaultDescription}
+  </p>
+</div>
 
         {/* Middle Column: Dynamic Company Links */}
         <div>

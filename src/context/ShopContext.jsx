@@ -8,7 +8,7 @@ const ShopContextProvider = (props) => {
   const [currency, setCurrency] = useState("$");
   const [logo, setLogo] = useState(localStorage.getItem("storeLogo") || "");
   const [storeName, setStoreName] = useState(
-    localStorage.getItem("storeName") || "FOREVER"
+    localStorage.getItem("storeName") || "TrendyTek"
   );
 
   // Bank Transfer Payment Details

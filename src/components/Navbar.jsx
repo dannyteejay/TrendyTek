@@ -49,22 +49,22 @@ const Navbar = () => {
 
   return (
     <div className="relative z-40 flex items-center justify-between py-4 font-medium transition-colors duration-300 bg-white border-b border-gray-200 dark:bg-slate-900 dark:border-slate-800">
-      {/* Brand Logo */}
-      <Link to="/" className="flex items-center shrink-0">
-        {logo ? (
-          <img
-            src={logo}
-            className="object-contain h-10 sm:h-12 md:h-14 w-auto max-w-[220px] sm:max-w-[280px] md:max-w-[340px] dark:brightness-0 dark:invert transition-all"
-            alt={storeName || "Store Logo"}
-          />
-        ) : (
-          <img
-            src={assets.logo}
-            className="object-contain w-36 sm:w-44 md:w-52 h-auto dark:brightness-0 dark:invert transition-all"
-            alt="Store Logo"
-          />
-        )}
-      </Link>
+      {/* Brand Logo (Shows Custom Logo or TrendyTek Brand) */}
+<Link to="/" className="flex items-center shrink-0">
+  {logo ? (
+    <img
+      src={logo}
+      className="object-contain h-10 sm:h-12 md:h-14 w-auto max-w-[220px] sm:max-w-[280px] md:max-w-[340px] dark:brightness-0 dark:invert transition-all"
+      alt={storeName || "TrendyTek"}
+    />
+  ) : (
+    <div className="flex items-center gap-1 select-none py-1">
+      <span className="text-2xl sm:text-3xl font-black tracking-tight text-gray-900 dark:text-white uppercase font-sans">
+        TRENDY<span className="text-blue-600 dark:text-blue-400">TEK</span>
+      </span>
+    </div>
+  )}
+</Link>
 
       {/* Desktop Dynamic Navigation Links */}
       <ul className="hidden gap-6 text-sm font-medium text-gray-700 dark:text-gray-200 sm:flex items-center">
