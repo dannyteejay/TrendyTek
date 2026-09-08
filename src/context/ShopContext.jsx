@@ -158,8 +158,6 @@ const ShopContextProvider = (props) => {
                   { title: "About us", url: "/about" },
                   { title: "Contact", url: "/contact" },
                   { title: "Collection", url: "/collection" },
-                  { title: "Blog", url: "/blog" },
-                  { title: "FAQ", url: "/faq" },
                 ],
           contactTitle: response.data.settings.contactTitle || "GET IN TOUCH",
           contactPhone:
@@ -224,7 +222,6 @@ const ShopContextProvider = (props) => {
     }
     setCartItems(cartData);
 
-    // 🎉 Trigger success toast alert with product name
     const productInfo = products.find((p) => p._id === itemId);
     const itemName = productInfo ? productInfo.name : "Product";
     toast.success(`🛒 "${itemName}" added to cart!`, {
@@ -329,10 +326,38 @@ const ShopContextProvider = (props) => {
     }
   };
 
+  // Initial Data Fetch
   useEffect(() => {
     getProductsData();
     getSettingsData();
     getCategoriesData();
+  }, []);
+
+  // ⚡ Smart Auto-Sync: Refreshes currency, settings & products in real-time without manual reload!
+  useEffect(() => {
+    // 1. Tab Focus Auto-Sync: When user switches back to the store tab
+    const handleFocus = () => {
+      getSettingsData();
+      getProductsData();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        getSettingsData();
+        getProductsData();
+      }
+    });
+
+    // 2. Background Polling (Silently syncs every 15 seconds)
+    const interval = setInterval(() => {
+      getSettingsData();
+      getProductsData();
+    }, 15000);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
