@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import Title from "../components/Title";
 import CartTotal from "../components/CartTotal";
 import { ShopContext } from "../context/ShopContext";
@@ -35,6 +35,31 @@ const PlaceOrder = () => {
     phone: "",
   });
 
+  // 🔒 Route Guard: Redirect guest to login and Auto-populate customer details
+  useEffect(() => {
+    if (!token) {
+      toast.info("🔐 Please sign in or create an account to proceed to checkout", {
+        position: "top-center",
+        autoClose: 3000,
+      });
+      navigate("/login?redirect=place-order");
+      return;
+    }
+
+    // Auto-populate customer profile details if available
+    const savedName = localStorage.getItem("userName") || "";
+    const savedEmail = localStorage.getItem("userEmail") || "";
+    if (savedName || savedEmail) {
+      const parts = savedName.trim().split(" ");
+      setFormData((prev) => ({
+        ...prev,
+        firstName: prev.firstName || parts[0] || "",
+        lastName: prev.lastName || parts.slice(1).join(" ") || "",
+        email: prev.email || savedEmail || "",
+      }));
+    }
+  }, [token, navigate]);
+
   const onChangeHandler = (event) => {
     const name = event.target.name;
     const value = event.target.value;
@@ -54,7 +79,7 @@ const PlaceOrder = () => {
 
     if (!token) {
       toast.error("Please login to complete your order");
-      navigate("/login");
+      navigate("/login?redirect=place-order");
       return;
     }
 

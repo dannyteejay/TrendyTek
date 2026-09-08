@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { ShopContext } from "../context/ShopContext";
 import axios from "axios";
 import { toast } from "react-toastify";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const Login = () => {
   // Mode: 'Login' | 'Sign Up' | 'Forgot Password'
@@ -29,12 +29,24 @@ const Login = () => {
   } = useContext(ShopContext);
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectPath = searchParams.get("redirect") || "";
 
-  useEffect(() => {
-    if (token) {
+  // Helper to redirect to checkout if coming from Cart, or home otherwise
+  const handleSuccessfulAuth = () => {
+    if (redirectPath === "place-order") {
+      navigate("/place-order");
+    } else {
       navigate("/");
     }
-  }, [token, navigate]);
+  };
+
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    if (token) {
+      handleSuccessfulAuth();
+    }
+  }, [token, redirectPath]);
 
   const onSubmitHandler = async (event) => {
     event.preventDefault();
@@ -62,7 +74,7 @@ const Login = () => {
             localStorage.setItem("userEmail", response.data.userEmail);
           }
           toast.success("Account created successfully!");
-          navigate("/");
+          handleSuccessfulAuth();
         } else {
           toast.error(response.data.message);
         }
@@ -93,7 +105,7 @@ const Login = () => {
           }
 
           toast.success("Welcome back!");
-          navigate("/");
+          handleSuccessfulAuth();
         } else {
           toast.error(response.data.message);
         }
@@ -157,7 +169,14 @@ const Login = () => {
         <hr className="border-none h-[1.5px] w-8 bg-gray-800 dark:bg-gray-200" />
       </div>
 
-      {/* Helper text */}
+      {/* Helper Banner when coming from Checkout */}
+      {redirectPath === "place-order" && (
+        <div className="w-full p-3 mb-1 text-center bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl text-xs font-semibold text-blue-700 dark:text-blue-300 shadow-2xs animate-fade-in">
+          🔐 Please sign in or register to complete your checkout.
+        </div>
+      )}
+
+      {/* Forgot Password Helper */}
       {currentState === "Forgot Password" && (
         <p className="text-xs text-center text-gray-500 dark:text-gray-400 -mt-2 mb-2">
           {forgotStep === "EMAIL_STEP"

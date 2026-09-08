@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 const Cart = () => {
-  const { products, currency, cartItems, updateQuantity } =
+  const { products, currency, cartItems, updateQuantity, token } =
     useContext(ShopContext);
   const navigate = useNavigate();
   const [cartData, setCartData] = useState([]);
@@ -30,11 +30,22 @@ const Cart = () => {
     }
   }, [cartItems, products]);
 
+  // 🔒 Secure Checkout Gate: Requires user to login before checkout
   const handleProceedToCheckout = () => {
     if (cartData.length === 0) {
       toast.error("Your cart is empty! Add products first.");
       return;
     }
+
+    if (!token) {
+      toast.info("🔐 Please sign in or create an account to proceed to checkout", {
+        position: "top-center",
+        autoClose: 3000,
+      });
+      navigate("/login?redirect=place-order");
+      return;
+    }
+
     navigate("/place-order");
   };
 
