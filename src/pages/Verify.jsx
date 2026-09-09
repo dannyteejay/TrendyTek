@@ -10,10 +10,12 @@ const Verify = () => {
   const localNavigate = useNavigate();
   const actualNavigate = navigate || localNavigate;
 
-  const success = searchParams.get("success");
   const orderId = searchParams.get("orderId");
   const paymentMethod = searchParams.get("paymentMethod");
   const reference = searchParams.get("reference") || searchParams.get("trxref");
+  const sessionId = searchParams.get("sessionId") || searchParams.get("session_id");
+  const paymentId = searchParams.get("paymentId") || searchParams.get("payment_id");
+  const cancelled = searchParams.get("cancelled") === "true";
 
   const verifyPayment = async () => {
     try {
@@ -21,11 +23,23 @@ const Verify = () => {
         return null;
       }
 
-      // 1. Verify Paystack
+      if (cancelled) {
+        toast.error("Payment was cancelled.");
+        actualNavigate("/cart");
+        return;
+      }
+
+      // 1. Verify Paystack Payment (Server Queries Paystack API)
       if (paymentMethod === "paystack") {
+        if (!reference) {
+          toast.error("Missing Paystack transaction reference.");
+          actualNavigate("/cart");
+          return;
+        }
+
         const response = await axios.post(
           backendUrl + "/api/order/verifyPaystack",
-          { success, orderId, reference },
+          { orderId, reference },
           { headers: { token } }
         );
 
@@ -34,17 +48,42 @@ const Verify = () => {
           toast.success("💳 Paystack Payment Confirmed! Order placed.");
           actualNavigate("/orders");
         } else {
-          toast.error("Paystack payment was not successful.");
+          toast.error(response.data.message || "Paystack payment verification failed.");
           actualNavigate("/cart");
         }
         return;
       }
 
-      // 2. Verify Crypto
+      // 2. Verify Stripe Payment (Server Queries Stripe API via Session ID)
+      if (paymentMethod === "stripe") {
+        if (!sessionId) {
+          toast.error("Missing Stripe session identifier.");
+          actualNavigate("/cart");
+          return;
+        }
+
+        const response = await axios.post(
+          backendUrl + "/api/order/verifyStripe",
+          { orderId, sessionId },
+          { headers: { token } }
+        );
+
+        if (response.data.success) {
+          setCartItems({});
+          toast.success("💳 Stripe Payment Successfully Verified! Order placed.");
+          actualNavigate("/orders");
+        } else {
+          toast.error(response.data.message || "Stripe payment failed or was not completed.");
+          actualNavigate("/cart");
+        }
+        return;
+      }
+
+      // 3. Verify NOWPayments Crypto Payment
       if (paymentMethod === "crypto") {
         const response = await axios.post(
           backendUrl + "/api/order/verifyCrypto",
-          { success, orderId },
+          { orderId, paymentId },
           { headers: { token } }
         );
 
@@ -53,35 +92,17 @@ const Verify = () => {
           toast.success("🪙 Cryptocurrency payment confirmed! Order placed.");
           actualNavigate("/orders");
         } else {
-          toast.warning("Crypto payment pending. You can check status in Orders.");
+          toast.info("Crypto transaction submitted. Awaiting blockchain confirmation.");
           actualNavigate("/orders");
         }
         return;
       }
 
-      // 3. Verify Stripe
-      if (paymentMethod === "stripe") {
-        const response = await axios.post(
-          backendUrl + "/api/order/verifyStripe",
-          { success, orderId },
-          { headers: { token } }
-        );
-
-        if (response.data.success) {
-          setCartItems({});
-          toast.success("💳 Stripe Payment Successful! Order placed.");
-          actualNavigate("/orders");
-        } else {
-          toast.error("Stripe Payment Failed.");
-          actualNavigate("/cart");
-        }
-        return;
-      }
-
+      // Default fallback
       actualNavigate("/orders");
     } catch (error) {
-      console.log(error);
-      toast.error(error.message || "Payment verification failed");
+      console.error("Payment verification error:", error);
+      toast.error(error.response?.data?.message || error.message || "Payment verification failed");
       actualNavigate("/cart");
     }
   };
@@ -94,7 +115,7 @@ const Verify = () => {
     <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
       <div className="w-14 h-14 border-4 border-black dark:border-white border-t-transparent rounded-full animate-spin"></div>
       <p className="text-base font-semibold text-gray-800 dark:text-gray-200">
-        Verifying your payment, please do not close this window...
+        Verifying your payment with gateway, please wait...
       </p>
     </div>
   );
