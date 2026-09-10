@@ -1,6 +1,12 @@
 import { createContext, useEffect, useState } from "react";
-import axios from "axios";
 import { toast } from "react-toastify";
+import {
+  authApi,
+  productApi,
+  cartApi,
+  categoryApi,
+  contentApi,
+} from "../api";
 
 export const ShopContext = createContext();
 
@@ -130,24 +136,24 @@ const ShopContextProvider = (props) => {
     }
   }, [token]);
 
-  // 2. Fetch live categories from database
+  // 2. Fetch live categories via API Layer
   const getCategoriesData = async () => {
     try {
-      const response = await axios.get(backendUrl + "/api/category/list");
-      if (response && response.data && response.data.success && response.data.categories) {
-        setCategories(response.data.categories);
+      const response = await categoryApi.getCategories();
+      if (response && response.success && response.categories) {
+        setCategories(response.categories);
       }
     } catch (error) {
       console.error("Categories fetch error:", error.message);
     }
   };
 
-  // 3. Fetch store settings (currency, logo, storeName, shipping zones, bank details, footer, payment gateways)
+  // 3. Fetch store settings via API Layer
   const getSettingsData = async () => {
     try {
-      const response = await axios.get(backendUrl + "/api/settings/get");
-      if (response && response.data && response.data.success && response.data.settings) {
-        const s = response.data.settings;
+      const response = await contentApi.getSettings();
+      if (response && response.success && response.settings) {
+        const s = response.settings;
 
         if (s.currency) {
           setCurrency(s.currency);
@@ -308,27 +314,22 @@ const ShopContextProvider = (props) => {
     };
   };
 
-  // 4. Fetch logged in user profile
-  const getUserProfileData = async (userToken) => {
-    if (!userToken) return;
+  // 4. Fetch logged in user profile via API Layer
+  const getUserProfileData = async () => {
     try {
-      const response = await axios.post(
-        backendUrl + "/api/user/get-profile",
-        {},
-        { headers: { token: userToken } }
-      );
-      if (response && response.data && response.data.success && response.data.user) {
-        if (response.data.user.image) {
-          setUserImage(response.data.user.image);
-          localStorage.setItem("userImage", response.data.user.image);
+      const response = await authApi.getProfile();
+      if (response && response.success && response.user) {
+        if (response.user.image) {
+          setUserImage(response.user.image);
+          localStorage.setItem("userImage", response.user.image);
         }
-        if (response.data.user.name) {
-          setUserName(response.data.user.name);
-          localStorage.setItem("userName", response.data.user.name);
+        if (response.user.name) {
+          setUserName(response.user.name);
+          localStorage.setItem("userName", response.user.name);
         }
-        if (response.data.user.email) {
-          setUserEmail(response.data.user.email);
-          localStorage.setItem("userEmail", response.data.user.email);
+        if (response.user.email) {
+          setUserEmail(response.user.email);
+          localStorage.setItem("userEmail", response.user.email);
         }
       }
     } catch (error) {
@@ -336,7 +337,7 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // 5. Add to Cart with Instant Success Alert
+  // 5. Add to Cart with Instant Success Alert & API Layer Sync
   const addToCart = async (itemId, size) => {
     if (!size) {
       toast.error("Please select a size first");
@@ -366,14 +367,9 @@ const ShopContextProvider = (props) => {
 
     if (token) {
       try {
-        await axios.post(
-          backendUrl + "/api/cart/add",
-          { itemId, size },
-          { headers: { token } }
-        );
+        await cartApi.addToCart(itemId, size);
       } catch (error) {
-        console.error(error);
-        toast.error(error.message);
+        console.error("Cart add error:", error.message);
       }
     }
   };
@@ -395,7 +391,7 @@ const ShopContextProvider = (props) => {
     return totalCount;
   };
 
-  // 7. Update Quantity
+  // 7. Update Quantity via API Layer
   const updateQuantity = async (itemId, size, quantity) => {
     let cartData = structuredClone(cartItems);
     cartData[itemId][size] = quantity;
@@ -403,14 +399,9 @@ const ShopContextProvider = (props) => {
 
     if (token) {
       try {
-        await axios.post(
-          backendUrl + "/api/cart/update",
-          { itemId, size, quantity },
-          { headers: { token } }
-        );
+        await cartApi.updateCart(itemId, size, quantity);
       } catch (error) {
-        console.error(error);
-        toast.error(error.message);
+        console.error("Cart update error:", error.message);
       }
     }
   };
@@ -433,28 +424,24 @@ const ShopContextProvider = (props) => {
     return totalAmount;
   };
 
-  // 9. Get Products List
+  // 9. Get Products List via API Layer
   const getProductsData = async () => {
     try {
-      const response = await axios.get(backendUrl + "/api/product/list");
-      if (response && response.data && response.data.success && response.data.products) {
-        setProducts(response.data.products.reverse());
+      const response = await productApi.getProducts();
+      if (response && response.success && response.products) {
+        setProducts(response.products.slice().reverse());
       }
     } catch (error) {
       console.error("Products fetch error:", error.message);
     }
   };
 
-  // 10. Get User Cart
-  const getUserCart = async (userToken) => {
+  // 10. Get User Cart via API Layer
+  const getUserCart = async () => {
     try {
-      const response = await axios.post(
-        backendUrl + "/api/cart/get",
-        {},
-        { headers: { token: userToken } }
-      );
-      if (response && response.data && response.data.success && response.data.cartData) {
-        setCartItems(response.data.cartData);
+      const response = await cartApi.getCart();
+      if (response && response.success && response.cartData) {
+        setCartItems(response.cartData);
       }
     } catch (error) {
       console.error("Cart fetch error:", error.message);
@@ -498,8 +485,8 @@ const ShopContextProvider = (props) => {
 
   useEffect(() => {
     if (token) {
-      getUserCart(token);
-      getUserProfileData(token);
+      getUserCart();
+      getUserProfileData();
     }
   }, [token]);
 
