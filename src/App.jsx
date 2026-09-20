@@ -11,7 +11,7 @@ import PlaceOrder from "./pages/PlaceOrder";
 import Orders from "./pages/Orders";
 import Verify from "./pages/Verify";
 import Blog from "./pages/Blog";
-import Faq from "./pages/Faq";
+import FAQ from "./pages/FAQ";
 import NotFound from "./pages/NotFound";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
@@ -53,7 +53,7 @@ const App = () => {
             <Route path="/orders" element={<Orders />} />
             <Route path="/verify" element={<Verify />} />
             <Route path="/blog" element={<Blog />} />
-            <Route path="/faq" element={<Faq />} />
+            <Route path="/faq" element={<FAQ />} />
 
             {/* 🌟 Catch-all 404 Route for any unmatched URL */}
             <Route path="*" element={<NotFound />} />
