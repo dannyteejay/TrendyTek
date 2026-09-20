@@ -30,7 +30,7 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response Interceptor: Centralized Error & Session Handling
+// Response Interceptor: Clean Session & Network Handling
 apiClient.interceptors.response.use(
   (response) => {
     return response.data;
@@ -48,12 +48,9 @@ apiClient.interceptors.response.use(
         localStorage.removeItem("token");
         toast.error("Session expired. Please log in again.");
       }
-    } else if (error.response?.status === 429) {
-      // Handle Rate Limiting
-      toast.warning("Too many requests. Please slow down.");
     }
 
-    // Prevents automatic 404 toast popups on background sync requests
+    // Prevents spamming warning popups on page loads
     return Promise.reject(new Error(message));
   }
 );
