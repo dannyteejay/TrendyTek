@@ -11,7 +11,10 @@ import {
 export const ShopContext = createContext();
 
 const ShopContextProvider = (props) => {
-  const [currency, setCurrency] = useState("$");
+  // 1. Defaults to Naira (₦) immediately on load
+  const [currency, setCurrency] = useState(
+    () => localStorage.getItem("storeCurrency") || "₦"
+  );
   const [logo, setLogo] = useState(localStorage.getItem("storeLogo") || "");
   const [storeName, setStoreName] = useState(
     localStorage.getItem("storeName") || "TrendyTek"
@@ -78,7 +81,7 @@ const ShopContextProvider = (props) => {
     copyrightText: "",
   });
 
-  // 1. Direct Theme Management with Immediate DOM update
+  // Theme Management
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem("theme") || "light";
   });
@@ -108,7 +111,11 @@ const ShopContextProvider = (props) => {
     }
   }, []);
 
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+  // Production backend fallback
+  const backendUrl =
+    import.meta.env.VITE_BACKEND_URL ||
+    "https://fullstackbackend-wwiu.onrender.com";
+
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [cartItems, setCartItems] = useState({});
@@ -124,7 +131,7 @@ const ShopContextProvider = (props) => {
     localStorage.getItem("userEmail") || ""
   );
 
-  // Keep token synced cleanly: remove when logged out, save when logged in
+  // Keep token synced cleanly
   useEffect(() => {
     if (token) {
       localStorage.setItem("token", token);
@@ -136,7 +143,7 @@ const ShopContextProvider = (props) => {
     }
   }, [token]);
 
-  // 2. Fetch live categories via API Layer
+  // Fetch live categories
   const getCategoriesData = async () => {
     try {
       const response = await categoryApi.getCategories();
@@ -144,11 +151,11 @@ const ShopContextProvider = (props) => {
         setCategories(response.categories);
       }
     } catch (error) {
-      console.error("Categories fetch error:", error.message);
+      console.warn("Categories fetch error:", error.message);
     }
   };
 
-  // 3. Fetch store settings via API Layer
+  // Fetch store settings
   const getSettingsData = async () => {
     try {
       const response = await contentApi.getSettings();
@@ -157,6 +164,7 @@ const ShopContextProvider = (props) => {
 
         if (s.currency) {
           setCurrency(s.currency);
+          localStorage.setItem("storeCurrency", s.currency);
         }
         if (s.logo !== undefined) {
           setLogo(s.logo || "");
@@ -167,7 +175,6 @@ const ShopContextProvider = (props) => {
           localStorage.setItem("storeName", s.storeName);
         }
 
-        // Set dynamic shipping fee & zones
         if (s.deliveryFee !== undefined) {
           const feeNum = Number(s.deliveryFee);
           setDeliveryFee(feeNum);
@@ -191,17 +198,14 @@ const ShopContextProvider = (props) => {
           setShippingZones(s.shippingZones);
         }
 
-        // Set active payment gateways from backend
         if (s.paymentGateways) {
           setPaymentGateways(s.paymentGateways);
         }
 
-        // Set dynamic bank transfer details
         if (s.bankName || s.accountNumber) {
           setBankDetails({
             bankName: s.bankName || "Guaranty Trust Bank (GTBank)",
-            accountName:
-              s.accountName || "TRENDYTEK ENTERPRISES LTD",
+            accountName: "TRENDYTEK ENTERPRISES LTD",
             accountNumber: s.accountNumber || "0123456789",
             bankInstructions:
               s.bankInstructions ||
@@ -209,12 +213,11 @@ const ShopContextProvider = (props) => {
           });
         }
 
-        // Set dynamic footer data
         setFooterData({
           footerDescription:
             s.footerDescription ||
             "Discover the best trends and everyday essentials. Premium quality, fast delivery, and dedicated customer care tailored for your lifestyle.",
-          companyTitle: s.companyTitle || "COMPANY",
+          companyTitle: "COMPANY",
           companyLinks:
             s.companyLinks && s.companyLinks.length > 0
               ? s.companyLinks
@@ -223,22 +226,22 @@ const ShopContextProvider = (props) => {
                   { title: "About us", url: "/about" },
                   { title: "Contact", url: "/contact" },
                   { title: "Collection", url: "/collection" },
+                  { title: "Blog", url: "/blog" },
+                  { title: "FAQ", url: "/faq" },
                 ],
-          contactTitle: s.contactTitle || "GET IN TOUCH",
-          contactPhone:
-            s.contactPhone || "+1-212-456-7890",
-          contactEmail:
-            s.contactEmail || "contact@trendytek.com",
-          contactAddress: s.contactAddress || "",
-          copyrightText: s.copyrightText || "",
+          contactTitle: "GET IN TOUCH",
+          contactPhone: "+1-212-456-7890",
+          contactEmail: "contact@trendytek.com",
+          contactAddress: "",
+          copyrightText: "",
         });
       }
     } catch (error) {
-      console.error("Settings load error:", error.message);
+      console.warn("Settings load error:", error.message);
     }
   };
 
-  // Helper: Distance / Location-Based Shipping Fee Calculator
+  // Helper: Shipping Fee Calculator
   const getDeliveryFee = (currentSubtotal = 0, customLocation = "") => {
     const subtotal = Number(currentSubtotal) || 0;
     if (subtotal === 0) return 0;
@@ -246,7 +249,6 @@ const ShopContextProvider = (props) => {
 
     const locationQuery = (customLocation || selectedDestination || "").trim().toLowerCase();
 
-    // 1. Check if matching any custom shipping zone
     if (locationQuery && Array.isArray(shippingZones) && shippingZones.length > 0) {
       const matchedZone = shippingZones.find((z) => {
         if (z.name?.toLowerCase().includes(locationQuery)) return true;
@@ -265,13 +267,12 @@ const ShopContextProvider = (props) => {
         const zoneFee = Number(matchedZone.fee) || 0;
         const zoneThreshold = Number(matchedZone.freeShippingThreshold) || 0;
         if (zoneThreshold > 0 && subtotal >= zoneThreshold) {
-          return 0; // Qualified for zone free shipping!
+          return 0;
         }
         return zoneFee;
       }
     }
 
-    // 2. Fallback to standard delivery fee
     const fee = Number(delivery_fee) || 0;
     const fallbackThreshold = Number(freeShippingThreshold) || 0;
     if (fallbackThreshold > 0 && subtotal >= fallbackThreshold) {
@@ -280,7 +281,7 @@ const ShopContextProvider = (props) => {
     return fee;
   };
 
-  // Helper: Get matching zone information (name & delivery timeframe)
+  // Helper: Zone Info
   const getActiveZoneInfo = (customLocation = "") => {
     const locationQuery = (customLocation || selectedDestination || "").trim().toLowerCase();
 
@@ -314,7 +315,7 @@ const ShopContextProvider = (props) => {
     };
   };
 
-  // 4. Fetch logged in user profile via API Layer
+  // Fetch logged in user profile
   const getUserProfileData = async () => {
     try {
       const response = await authApi.getProfile();
@@ -333,11 +334,11 @@ const ShopContextProvider = (props) => {
         }
       }
     } catch (error) {
-      console.error("User profile load error:", error.message);
+      console.warn("User profile load error:", error.message);
     }
   };
 
-  // 5. Add to Cart with Instant Success Alert & API Layer Sync
+  // Add to Cart
   const addToCart = async (itemId, size) => {
     if (!size) {
       toast.error("Please select a size first");
@@ -374,7 +375,7 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // 6. Cart Count
+  // Cart Count
   const getCartCount = () => {
     let totalCount = 0;
     for (const items in cartItems) {
@@ -391,7 +392,7 @@ const ShopContextProvider = (props) => {
     return totalCount;
   };
 
-  // 7. Update Quantity via API Layer
+  // Update Quantity
   const updateQuantity = async (itemId, size, quantity) => {
     let cartData = structuredClone(cartItems);
     cartData[itemId][size] = quantity;
@@ -406,7 +407,7 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // 8. Cart Total Amount
+  // Cart Total Amount
   const getCartAmount = () => {
     let totalAmount = 0;
     for (const items in cartItems) {
@@ -424,7 +425,7 @@ const ShopContextProvider = (props) => {
     return totalAmount;
   };
 
-  // 9. Get Products List via API Layer
+  // Get Products List
   const getProductsData = async () => {
     try {
       const response = await productApi.getProducts();
@@ -432,11 +433,11 @@ const ShopContextProvider = (props) => {
         setProducts(response.products.slice().reverse());
       }
     } catch (error) {
-      console.error("Products fetch error:", error.message);
+      console.warn("Products fetch error:", error.message);
     }
   };
 
-  // 10. Get User Cart via API Layer
+  // Get User Cart
   const getUserCart = async () => {
     try {
       const response = await cartApi.getCart();
@@ -444,18 +445,18 @@ const ShopContextProvider = (props) => {
         setCartItems(response.cartData);
       }
     } catch (error) {
-      console.error("Cart fetch error:", error.message);
+      console.warn("Cart fetch error:", error.message);
     }
   };
 
-  // Initial Data Fetch
+  // Initial Clean Mount Data Fetch
   useEffect(() => {
     getProductsData();
     getSettingsData();
     getCategoriesData();
   }, []);
 
-  // ⚡ Smart Auto-Sync: Refreshes currency, settings & products in real-time without manual reload!
+  // Sync on tab focus
   useEffect(() => {
     const handleFocus = () => {
       getSettingsData();
@@ -463,24 +464,7 @@ const ShopContextProvider = (props) => {
       getCategoriesData();
     };
     window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        getSettingsData();
-        getProductsData();
-        getCategoriesData();
-      }
-    });
-
-    const interval = setInterval(() => {
-      getSettingsData();
-      getProductsData();
-      getCategoriesData();
-    }, 15000);
-
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-      clearInterval(interval);
-    };
+    return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
   useEffect(() => {
