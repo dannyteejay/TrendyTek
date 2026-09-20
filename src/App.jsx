@@ -16,6 +16,7 @@ import NotFound from "./pages/NotFound";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import SearchBar from "./components/SearchBar";
+import TrendyAI from "./components/TrendyAI";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -59,6 +60,9 @@ const App = () => {
           </Routes>
         </main>
       </div>
+
+      {/* 🤖 Multimodal Voice & Visual AI Shopping Assistant */}
+      <TrendyAI />
 
       <Footer />
     </div>
