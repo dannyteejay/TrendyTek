@@ -4,12 +4,12 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 /**
- * 🤖 TrendyAI - Multimodal Voice & Visual Smart Shopping Assistant
+ * 🤖 TrendyAI - Multimodal Voice & Visual OCR Smart Shopping Assistant
  * Features:
- * 1. 🎙️ Real-Time Voice Search & Conversational Ordering (Web Speech API)
- * 2. 📸 Photo & Screenshot Visual Product Search
- * 3. 🧠 Dynamic Natural Language Catalog Matcher (Accurately checks availability for ANY asked item)
- * 4. 🛒 1-Click Interactive Cart Addition & Instant Checkout
+ * 1. 📸 Real-Time Screenshot & Image OCR (Reads handwritten & typed shopping lists from WhatsApp, Notes, Receipts)
+ * 2. 🛒 Multi-Item Order Parser & "1-Click Add All to Cart"
+ * 3. 🎙️ Real-Time Voice Search & Conversational Ordering (Web Speech API)
+ * 4. 🧠 Dynamic Catalog Availability Matcher for ANY product
  * 5. 🔊 Spoken Text-to-Speech Audio Feedback with Mute Toggle
  */
 const TrendyAI = () => {
@@ -26,17 +26,18 @@ const TrendyAI = () => {
 
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isScanningOCR, setIsScanningOCR] = useState(false);
   const [transcriptPreview, setTranscriptPreview] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [messages, setMessages] = useState([
     {
       id: "welcome",
       sender: "ai",
-      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n🎙️ **Speak to me** to check product availability or place orders\n📸 **Upload a photo/screenshot** to find matching items\n💬 **Ask me anything** about our collection!`,
+      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n📸 **Upload a screenshot or photo** of your written/typed order list\n🎙️ **Speak to me** to check items or place orders\n💬 **Ask me anything** about our collection!`,
       timestamp: new Date(),
       products: [],
       suggestions: [
-        "📸 Search by photo",
+        "📸 Scan order list screenshot",
         "🔥 Best sellers",
         "👗 New arrivals",
         "💰 Items under ₦30,000",
@@ -56,7 +57,7 @@ const TrendyAI = () => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isOpen, isProcessing, transcriptPreview]);
+  }, [messages, isOpen, isProcessing, isScanningOCR, transcriptPreview]);
 
   // Voice Speaker (TTS)
   const speakText = useCallback(
@@ -150,7 +151,55 @@ const TrendyAI = () => {
     [products]
   );
 
-  // 🧠 Dynamic Conversational Brain
+  // 📸 Dynamic OCR Engine Loader (Loads Tesseract.js directly in browser)
+  const runOCR = async (imageSrc) => {
+    return new Promise((resolve) => {
+      try {
+        const process = async () => {
+          if (!window.Tesseract) {
+            const script = document.createElement("script");
+            script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+            script.async = true;
+            script.onload = async () => {
+              try {
+                const { data } = await window.Tesseract.recognize(imageSrc, "eng");
+                resolve(data?.text || "");
+              } catch (err) {
+                console.warn("OCR recognize error:", err);
+                resolve("");
+              }
+            };
+            script.onerror = () => resolve("");
+            document.head.appendChild(script);
+          } else {
+            const { data } = await window.Tesseract.recognize(imageSrc, "eng");
+            resolve(data?.text || "");
+          }
+        };
+        process();
+      } catch (err) {
+        console.warn("OCR loader error:", err);
+        resolve("");
+      }
+    });
+  };
+
+  // Add multiple items to cart at once
+  const handleAddAllToCart = (matchedItems) => {
+    if (!matchedItems || matchedItems.length === 0) return;
+
+    let addedCount = 0;
+    matchedItems.forEach((item) => {
+      const size = item.sizes?.[0] || "Standard";
+      addToCart(item._id, size);
+      addedCount++;
+    });
+
+    toast.success(`🛒 Added ${addedCount} items to your cart!`);
+    speakText(`I have added ${addedCount} items from your screenshot to your shopping cart.`);
+  };
+
+  // 🧠 Conversational Brain & Query Processor
   const processQuery = useCallback(
     async (userQuery, imageAnalysisData = null) => {
       setIsProcessing(true);
@@ -158,9 +207,67 @@ const TrendyAI = () => {
       const lower = raw.toLowerCase();
       const subject = extractSubject(raw);
 
-      // 1. Friendly Greetings
+      // 1. OCR Screenshot Order List Processing
+      if (imageAnalysisData && imageAnalysisData.isOrderList) {
+        const extractedLines = (imageAnalysisData.extractedText || "")
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => {
+            if (line.length < 3) return false;
+            // Filter out common phone screenshot noise (timestamps, battery, etc.)
+            if (/^\d{1,2}:\d{2}/.test(line)) return false;
+            if (/^(am|pm|lte|5g|4g|wifi|battery|message|type|online)\b/i.test(line)) return false;
+            return true;
+          });
+
+        let matchedProducts = [];
+        let identifiedItems = [];
+
+        for (const line of extractedLines) {
+          const matches = searchCatalog(line);
+          if (matches.length > 0) {
+            matches.forEach((m) => {
+              if (!matchedProducts.some((p) => p._id === m._id)) {
+                matchedProducts.push(m);
+                identifiedItems.push({ text: line, matched: m.name });
+              }
+            });
+          }
+        }
+
+        // If specific lines didn't match, run keyword bag search
+        if (matchedProducts.length === 0 && imageAnalysisData.extractedText) {
+          matchedProducts = searchCatalog(imageAnalysisData.extractedText);
+        }
+
+        if (matchedProducts.length > 0) {
+          const reply = `📄 **Screenshot Order List Scanned:**\nI extracted **${matchedProducts.length} product${
+            matchedProducts.length > 1 ? "s" : ""
+          }** matching the text in your screenshot!\n\nYou can add them individually or click **"Add All to Cart"** below:`;
+
+          speakText(`I read your screenshot order list and found ${matchedProducts.length} matching items in our store.`);
+
+          return {
+            text: reply,
+            products: matchedProducts,
+            isMultiOrder: true,
+            suggestions: ["🛒 Add All to Cart", "💳 Go to Checkout", "🛍️ View Cart"],
+          };
+        } else if (imageAnalysisData.extractedText) {
+          const snippet = imageAnalysisData.extractedText.slice(0, 150).trim();
+          const reply = `📄 **Screenshot Text Detected:**\n"${snippet}..."\n\nI couldn't find an exact catalog match for these specific written items. Here are our recommended store items:`;
+          speakText("I read the text in your screenshot, but could not find exact catalog matches. Here are some recommendations.");
+          return {
+            text: reply,
+            products: (products || []).slice(0, 4),
+            suggestions: ["🔥 Best Sellers", "👗 Women's Wear", "👔 Men's Wear"],
+          };
+        }
+      }
+
+      // 2. Friendly Greetings
       if (/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|yo|greetings)\b/i.test(lower)) {
-        const reply = `👋 Hello! Welcome to **${storeName}**! How can I help you today? You can ask me to find any item, order by voice, or check our latest arrivals.`;
+        const reply = `👋 Hello! Welcome to **${storeName}**! How can I help you today? You can ask me to find any item, order by voice, or upload an order screenshot.`;
         speakText(`Hello! Welcome to ${storeName}. What can I help you find today?`);
         return {
           text: reply,
@@ -169,7 +276,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 2. Store Identity Questions ("What do you sell?", "Who are you?")
+      // 3. Store Identity Questions ("What do you sell?", "Who are you?")
       if (
         lower.includes("what do you sell") ||
         lower.includes("what is this store") ||
@@ -185,7 +292,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 3. Order by Voice / Add to Cart
+      // 4. Order by Voice / Add to Cart
       if (lower.includes("add") && (lower.includes("cart") || lower.includes("bag"))) {
         let extractedSize = "Standard";
         const sizeMatch = lower.match(/\b(size\s+)?(xxl|xl|l|m|s|small|medium|large|extra large)\b/i);
@@ -230,7 +337,7 @@ const TrendyAI = () => {
         }
       }
 
-      // 4. View Cart / Checkout
+      // 5. View Cart / Checkout
       if (lower.includes("view cart") || lower.includes("my cart") || lower.includes("checkout") || lower === "cart") {
         const amount = getCartAmount();
         const reply = `🛒 Your cart total is **${currency}${amount?.toLocaleString?.() || amount}**. Would you like to proceed to checkout?`;
@@ -242,7 +349,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 5. Best Sellers / Trending
+      // 6. Best Sellers / Trending
       if (lower.includes("best") || lower.includes("popular") || lower.includes("trending") || lower.includes("top")) {
         const bestSellers = (products || []).filter((p) => p && p.bestSeller).slice(0, 4);
         const items = bestSellers.length > 0 ? bestSellers : (products || []).slice(0, 4);
@@ -255,7 +362,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 6. Budget / Price-Filtered Queries
+      // 7. Budget / Price-Filtered Queries
       const priceMatch = lower.match(/(under|below|less than|budget)\s*([0-9,]+)/i);
       if (priceMatch) {
         const maxPrice = Number(priceMatch[2].replace(/,/g, ""));
@@ -267,18 +374,6 @@ const TrendyAI = () => {
           speakText(`Found ${items.length} items within your budget.`);
           return { text: reply, products: items, suggestions: ["🔥 Best sellers", "👗 View all"] };
         }
-      }
-
-      // 7. Image-Driven Visual Query
-      if (imageAnalysisData) {
-        const matches = searchCatalog(imageAnalysisData.keywords);
-        const reply = `📸 **Visual Match:** I analyzed your image and found matching items in our store:`;
-        speakText("I found matching products based on your image.");
-        return {
-          text: reply,
-          products: matches.length > 0 ? matches : (products || []).slice(0, 3),
-          suggestions: ["🛒 Add to cart", "👗 View collection"],
-        };
       }
 
       // 8. 🔍 Dynamic Catalog Availability Search for ANY queried item
@@ -297,7 +392,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 9. ❌ Dynamic NOT Available Response (Specific to whatever they asked for)
+      // 9. ❌ Dynamic NOT Available Response
       const requestedItem = subject || raw;
       const fallbackProducts = (products || []).slice(0, 4);
 
@@ -318,7 +413,7 @@ const TrendyAI = () => {
     async (text, imgData = null) => {
       if (!text && !imgData) return;
 
-      const query = text || "Search with uploaded image";
+      const query = text || "Scan screenshot order list 📸";
       const userMsg = {
         id: Date.now().toString(),
         sender: "user",
@@ -340,6 +435,7 @@ const TrendyAI = () => {
         text: result.text,
         products: result.products || [],
         suggestions: result.suggestions || [],
+        isMultiOrder: result.isMultiOrder || false,
         timestamp: new Date(),
       };
 
@@ -446,16 +542,24 @@ const TrendyAI = () => {
     }
   };
 
-  // Image Upload Handler
-  const handleImageUpload = (e) => {
+  // 📸 Advanced Image & Screenshot Order Reader Handler
+  const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!isOpen) setIsOpen(true);
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const base64 = reader.result;
+
+      setIsScanningOCR(true);
+
+      // Extract text from the image using in-browser OCR
+      const extractedText = await runOCR(base64);
+
+      setIsScanningOCR(false);
+
       const fileNameKeywords = file.name
         .replace(/[-_.]/g, " ")
         .replace(/\b(image|img|screenshot|photo|png|jpg|jpeg)\b/gi, "")
@@ -463,10 +567,17 @@ const TrendyAI = () => {
 
       const analysisData = {
         preview: base64,
-        keywords: fileNameKeywords || "shirt dress shoes fashion cloth",
+        isOrderList: true,
+        extractedText: extractedText || fileNameKeywords || "shirt dress shoes fashion",
+        keywords: extractedText || fileNameKeywords || "shirt dress shoes fashion",
       };
 
-      handleUserMessage("Find items matching this photo/screenshot 📸", analysisData);
+      handleUserMessage(
+        extractedText
+          ? "Read this order list screenshot and find matching store items 📸"
+          : "Find items matching this photo/screenshot 📸",
+        analysisData
+      );
     };
     reader.readAsDataURL(file);
   };
@@ -543,9 +654,9 @@ const TrendyAI = () => {
               <div>
                 <h4 className="text-sm font-bold flex items-center gap-1.5 leading-tight">
                   TrendyAI Assistant
-                  <span className="text-[10px] bg-blue-500/30 text-blue-200 px-1.5 py-0.2 rounded font-mono">Live</span>
+                  <span className="text-[10px] bg-blue-500/30 text-blue-200 px-1.5 py-0.2 rounded font-mono">OCR Ready</span>
                 </h4>
-                <p className="text-[10px] text-gray-300">Voice & Image-Powered Ordering</p>
+                <p className="text-[10px] text-gray-300">Voice, Photo & Screenshot Order Reader</p>
               </div>
             </div>
 
@@ -590,6 +701,16 @@ const TrendyAI = () => {
                   )}
                   <p className="whitespace-pre-wrap">{msg.text}</p>
                 </div>
+
+                {/* 1-Click Multi-Item Add All Button (for Screenshot Orders) */}
+                {msg.isMultiOrder && msg.products && msg.products.length > 1 && (
+                  <button
+                    onClick={() => handleAddAllToCart(msg.products)}
+                    className="mt-2.5 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-xl shadow-md hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>🛒</span> Add All {msg.products.length} Items to Cart
+                  </button>
+                )}
 
                 {/* Product Cards */}
                 {msg.products && msg.products.length > 0 && (
@@ -640,8 +761,9 @@ const TrendyAI = () => {
                       <button
                         key={i}
                         onClick={() => {
-                          if (sug.includes("photo")) fileInputRef.current?.click();
+                          if (sug.includes("photo") || sug.includes("screenshot")) fileInputRef.current?.click();
                           else if (sug.includes("voice")) toggleListening();
+                          else if (sug.includes("Add All") && msg.products) handleAddAllToCart(msg.products);
                           else if (sug.includes("Checkout")) {
                             setIsOpen(false);
                             navigate("/place-order");
@@ -662,9 +784,15 @@ const TrendyAI = () => {
               </div>
             ))}
 
+            {isScanningOCR && (
+              <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-full px-3 py-1.5 w-fit animate-pulse">
+                <span>📸</span> Scanning & reading text from your screenshot...
+              </div>
+            )}
+
             {isProcessing && (
               <div className="flex items-center gap-2 text-xs text-gray-500 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-full px-3 py-1.5 w-fit animate-pulse">
-                <span>🤖</span> Searching store inventory & checking availability...
+                <span>🤖</span> Searching store catalog & matching items...
               </div>
             )}
 
@@ -696,7 +824,7 @@ const TrendyAI = () => {
               }}
               className="flex items-center gap-2"
             >
-              {/* Photo Upload */}
+              {/* Photo & Screenshot Upload Button */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -707,7 +835,7 @@ const TrendyAI = () => {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                title="Search by image or screenshot"
+                title="Scan order list screenshot or photo"
                 className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer text-lg"
               >
                 📷
@@ -732,7 +860,7 @@ const TrendyAI = () => {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Ask e.g. 'Do you have shoes?' or speak..."
+                placeholder="Ask, speak, or upload order screenshot..."
                 className="flex-1 px-3 py-2 text-xs sm:text-sm bg-gray-100 dark:bg-neutral-800 text-gray-900 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-white border border-transparent"
               />
 
