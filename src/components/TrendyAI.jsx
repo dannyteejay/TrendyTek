@@ -8,7 +8,7 @@ import { toast } from "react-toastify";
  * Features:
  * 1. 🎙️ Real-Time Voice Search & Conversational Ordering (Web Speech API)
  * 2. 📸 Photo & Screenshot Visual Product Search
- * 3. 💬 Conversational FAQ & Store Knowledge (Handles general questions like "Do you have cars?", greetings, policies)
+ * 3. 🧠 Dynamic Natural Language Catalog Matcher (Accurately checks availability for ANY asked item)
  * 4. 🛒 1-Click Interactive Cart Addition & Instant Checkout
  * 5. 🔊 Spoken Text-to-Speech Audio Feedback with Mute Toggle
  */
@@ -32,14 +32,14 @@ const TrendyAI = () => {
     {
       id: "welcome",
       sender: "ai",
-      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n🎙️ **Speak to me** to find products or place orders\n📸 **Upload a photo/screenshot** of any item\n💬 **Ask me anything** about our store and collection!`,
+      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n🎙️ **Speak to me** to check product availability or place orders\n📸 **Upload a photo/screenshot** to find matching items\n💬 **Ask me anything** about our collection!`,
       timestamp: new Date(),
       products: [],
       suggestions: [
         "📸 Search by photo",
         "🔥 Best sellers",
         "👗 New arrivals",
-        "💰 Items under ₦20,000",
+        "💰 Items under ₦30,000",
       ],
     },
   ]);
@@ -69,7 +69,7 @@ const TrendyAI = () => {
           .replace(/[*_#`~]/g, "")
           .replace(/https?:\/\/\S+/g, "")
           .replace(/₦/g, " Naira ")
-          .slice(0, 200);
+          .slice(0, 220);
 
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.rate = 1.0;
@@ -83,17 +83,33 @@ const TrendyAI = () => {
     [voiceEnabled]
   );
 
-  // Catalog Matcher
+  // Helper: Extract core item/subject from natural language sentence
+  const extractSubject = (query) => {
+    let q = (query || "").toLowerCase().trim();
+    q = q.replace(/[?!.,]/g, "");
+    q = q.replace(
+      /^(do you have|do you sell|do you guys have|are there any|can i get|can i buy|is there a|is there any|show me|find me|looking for|i want|i need|search for|what about|tell me about|how about)\s+/gi,
+      ""
+    );
+    q = q.replace(/^(a|an|the|some|any)\s+/gi, "");
+    return q.trim();
+  };
+
+  // Catalog Matcher Engine
   const searchCatalog = useCallback(
     (query, filters = {}) => {
       if (!products || !Array.isArray(products) || products.length === 0) return [];
 
-      const q = (query || "").toLowerCase().trim();
-      if (!q) return products.slice(0, 4);
+      const cleanSubject = extractSubject(query);
+      const rawLower = (query || "").toLowerCase().trim();
+      const searchTerm = cleanSubject || rawLower;
 
-      // Remove conversational filler words
-      const clean = q.replace(/\b(do|you|have|any|a|the|show|me|find|looking|for|can|i|get|want|to|buy|sell|is|there|are)\b/gi, "").trim();
-      const words = (clean || q).split(/\s+/).filter((w) => w.length >= 2);
+      if (!searchTerm) return products.slice(0, 4);
+
+      const words = searchTerm
+        .split(/\s+/)
+        .map((w) => w.trim())
+        .filter((w) => w.length > 2);
 
       let matches = products.filter((p) => {
         if (!p) return false;
@@ -106,21 +122,27 @@ const TrendyAI = () => {
         if (filters.maxPrice && Number(p.price) > filters.maxPrice) return false;
         if (filters.minPrice && Number(p.price) < filters.minPrice) return false;
 
-        // Exact term match
-        if (clean && (pName.includes(clean) || pCat.includes(clean) || pSub.includes(clean) || pDesc.includes(clean))) {
+        if (
+          pName.includes(searchTerm) ||
+          pCat.includes(searchTerm) ||
+          pSub.includes(searchTerm) ||
+          pDesc.includes(searchTerm)
+        ) {
           return true;
         }
 
-        // Word score
-        const score = words.reduce((acc, w) => {
-          if (pName.includes(w)) return acc + 4;
-          if (pCat.includes(w)) return acc + 3;
-          if (pSub.includes(w)) return acc + 2;
-          if (pDesc.includes(w)) return acc + 1;
-          return acc;
-        }, 0);
+        if (words.length > 0) {
+          const score = words.reduce((acc, word) => {
+            if (pName.includes(word)) return acc + 4;
+            if (pCat.includes(word)) return acc + 3;
+            if (pSub.includes(word)) return acc + 2;
+            if (pDesc.includes(word)) return acc + 1;
+            return acc;
+          }, 0);
+          return score >= 2;
+        }
 
-        return score >= 2;
+        return false;
       });
 
       return matches.slice(0, 4);
@@ -128,17 +150,18 @@ const TrendyAI = () => {
     [products]
   );
 
-  // 🧠 Conversational Brain & Query Processor
+  // 🧠 Dynamic Conversational Brain
   const processQuery = useCallback(
     async (userQuery, imageAnalysisData = null) => {
       setIsProcessing(true);
       const raw = (userQuery || "").trim();
       const lower = raw.toLowerCase();
+      const subject = extractSubject(raw);
 
-      // 1. Greetings & Friendly Small Talk
-      if (/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|yo)\b/i.test(lower)) {
-        const reply = `👋 Hello! Welcome to **${storeName}**! How can I help you today? You can ask me to find outfits, check bestsellers, or upload a photo to match.`;
-        speakText("Hello! Welcome to TrendyTek. How can I help you find what you need today?");
+      // 1. Friendly Greetings
+      if (/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|yo|greetings)\b/i.test(lower)) {
+        const reply = `👋 Hello! Welcome to **${storeName}**! How can I help you today? You can ask me to find any item, order by voice, or check our latest arrivals.`;
+        speakText(`Hello! Welcome to ${storeName}. What can I help you find today?`);
         return {
           text: reply,
           products: (products || []).slice(0, 2),
@@ -146,29 +169,15 @@ const TrendyAI = () => {
         };
       }
 
-      // 2. Questions about out-of-scope inventory (e.g., "Do you have a car?", "Do you sell laptops/cars/groceries?")
+      // 2. Store Identity Questions ("What do you sell?", "Who are you?")
       if (
-        lower.includes("car") ||
-        lower.includes("vehicle") ||
-        lower.includes("automobile") ||
-        lower.includes("house") ||
-        lower.includes("pet") ||
-        lower.includes("groceries") ||
-        lower.includes("food")
+        lower.includes("what do you sell") ||
+        lower.includes("what is this store") ||
+        lower.includes("who are you") ||
+        lower.includes("what products do you have")
       ) {
-        const reply = `🚗 We specialize in **fashion, trendy clothing, footwear, and lifestyle apparel**, so we don't sell vehicles or groceries!\n\nTake a look at some of our popular clothing collections below:`;
-        speakText("We specialize in premium fashion and apparel, but we do not sell cars. Here are some of our popular collections.");
-        return {
-          text: reply,
-          products: (products || []).slice(0, 4),
-          suggestions: ["🔥 Best sellers", "👔 Men's wear", "👗 Women's wear"],
-        };
-      }
-
-      // 3. Questions about store identity ("Who are you?", "What do you sell?")
-      if (lower.includes("what do you sell") || lower.includes("what is this store") || lower.includes("who are you")) {
-        const reply = `✨ **${storeName}** is your destination for premium quality fashion, stylish outfits, and lifestyle essentials.\n\nBrowse our trending items below or let me know what style you're looking for!`;
-        speakText(`TrendyTek is your home for quality fashion and apparel. What style are you looking for today?`);
+        const reply = `✨ **${storeName}** offers premium quality fashion, stylish apparel, shoes, and lifestyle essentials.\n\nBrowse some of our popular picks below or ask me for any specific item:`;
+        speakText(`${storeName} is your destination for quality fashion and apparel. What are you looking for today?`);
         return {
           text: reply,
           products: (products || []).slice(0, 4),
@@ -176,8 +185,8 @@ const TrendyAI = () => {
         };
       }
 
-      // 4. Order by Voice / Add to Cart
-      if (lower.includes("add") && (lower.includes("cart") || lower.includes("bag") || lower.includes("buy"))) {
+      // 3. Order by Voice / Add to Cart
+      if (lower.includes("add") && (lower.includes("cart") || lower.includes("bag"))) {
         let extractedSize = "Standard";
         const sizeMatch = lower.match(/\b(size\s+)?(xxl|xl|l|m|s|small|medium|large|extra large)\b/i);
         if (sizeMatch) {
@@ -190,7 +199,7 @@ const TrendyAI = () => {
         }
 
         const cleanQuery = lower
-          .replace(/add|to|my|the|cart|bag|please|size|small|medium|large|extra|xl|xxl|m|l|s|buy/gi, "")
+          .replace(/\b(add|to|my|the|cart|bag|please|size|small|medium|large|extra|xl|xxl|m|l|s)\b/gi, "")
           .trim();
 
         const matched = searchCatalog(cleanQuery || lower);
@@ -221,8 +230,8 @@ const TrendyAI = () => {
         }
       }
 
-      // 5. View Cart / Checkout
-      if (lower.includes("view cart") || lower.includes("my cart") || lower.includes("checkout") || lower.includes("pay")) {
+      // 4. View Cart / Checkout
+      if (lower.includes("view cart") || lower.includes("my cart") || lower.includes("checkout") || lower === "cart") {
         const amount = getCartAmount();
         const reply = `🛒 Your cart total is **${currency}${amount?.toLocaleString?.() || amount}**. Would you like to proceed to checkout?`;
         speakText("Your cart is ready for checkout.");
@@ -233,7 +242,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 6. Best Sellers / Trending
+      // 5. Best Sellers / Trending
       if (lower.includes("best") || lower.includes("popular") || lower.includes("trending") || lower.includes("top")) {
         const bestSellers = (products || []).filter((p) => p && p.bestSeller).slice(0, 4);
         const items = bestSellers.length > 0 ? bestSellers : (products || []).slice(0, 4);
@@ -246,7 +255,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 7. Budget / Price Range
+      // 6. Budget / Price-Filtered Queries
       const priceMatch = lower.match(/(under|below|less than|budget)\s*([0-9,]+)/i);
       if (priceMatch) {
         const maxPrice = Number(priceMatch[2].replace(/,/g, ""));
@@ -254,16 +263,16 @@ const TrendyAI = () => {
         const items = searchCatalog(cleanTerm, { maxPrice });
 
         if (items.length > 0) {
-          const reply = `💰 Here are items within your budget of **${currency}${maxPrice.toLocaleString()}**:`;
+          const reply = `💰 Here are items within your budget under **${currency}${maxPrice.toLocaleString()}**:`;
           speakText(`Found ${items.length} items within your budget.`);
           return { text: reply, products: items, suggestions: ["🔥 Best sellers", "👗 View all"] };
         }
       }
 
-      // 8. Image-driven Query
+      // 7. Image-Driven Visual Query
       if (imageAnalysisData) {
         const matches = searchCatalog(imageAnalysisData.keywords);
-        const reply = `📸 **Visual Match Found:** I analyzed your image and found matching store items:`;
+        const reply = `📸 **Visual Match:** I analyzed your image and found matching items in our store:`;
         speakText("I found matching products based on your image.");
         return {
           text: reply,
@@ -272,26 +281,33 @@ const TrendyAI = () => {
         };
       }
 
-      // 9. Standard Catalog Search
-      const foundItems = searchCatalog(lower);
+      // 8. 🔍 Dynamic Catalog Availability Search for ANY queried item
+      const foundItems = searchCatalog(raw);
+
       if (foundItems.length > 0) {
-        const reply = `✨ Found **${foundItems.length} matching item${foundItems.length > 1 ? "s" : ""}** for "${raw}":`;
-        speakText(`Found ${foundItems.length} items for ${raw}.`);
+        const displaySubject = subject || raw;
+        const reply = `✨ **Yes!** We have **${foundItems.length}** matching item${
+          foundItems.length > 1 ? "s" : ""
+        } for **"${displaySubject}"**:`;
+        speakText(`Yes! We have matching ${displaySubject} in stock.`);
         return {
           text: reply,
           products: foundItems,
-          suggestions: ["🛒 Add to cart", "🔥 Best sellers"],
+          suggestions: ["🛒 Add to Cart", "🔥 Best Sellers", "🛍️ View All"],
         };
       }
 
-      // 10. Fallback with Recommendations
-      const fallbackProducts = (products || []).slice(0, 3);
-      const reply = `I couldn't find any products matching **"${raw}"** in our store catalog.\n\nHere are some popular fashion items you might love instead:`;
-      speakText(`I couldn't find an exact match for ${raw}, but here are some popular items in our store.`);
+      // 9. ❌ Dynamic NOT Available Response (Specific to whatever they asked for)
+      const requestedItem = subject || raw;
+      const fallbackProducts = (products || []).slice(0, 4);
+
+      const reply = `❌ Sorry, we currently do not have **"${requestedItem}"** available in our store.\n\nOur store specializes in fashion apparel, shoes, and lifestyle collections. Here are some of our popular recommendations:`;
+      speakText(`Sorry, we do not have ${requestedItem} available. Here are some popular recommendations from our store.`);
+
       return {
         text: reply,
         products: fallbackProducts,
-        suggestions: ["👗 Women's wear", "👔 Men's wear", "🔥 Best sellers"],
+        suggestions: ["🔥 Best Sellers", "👗 Women's Wear", "👔 Men's Wear"],
       };
     },
     [products, currency, addToCart, getCartAmount, storeName, searchCatalog, speakText]
@@ -648,7 +664,7 @@ const TrendyAI = () => {
 
             {isProcessing && (
               <div className="flex items-center gap-2 text-xs text-gray-500 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-full px-3 py-1.5 w-fit animate-pulse">
-                <span>🤖</span> Analyzing request & checking store inventory...
+                <span>🤖</span> Searching store inventory & checking availability...
               </div>
             )}
 
@@ -716,7 +732,7 @@ const TrendyAI = () => {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Ask e.g. 'Do you have a car?' or speak..."
+                placeholder="Ask e.g. 'Do you have shoes?' or speak..."
                 className="flex-1 px-3 py-2 text-xs sm:text-sm bg-gray-100 dark:bg-neutral-800 text-gray-900 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-white border border-transparent"
               />
 
