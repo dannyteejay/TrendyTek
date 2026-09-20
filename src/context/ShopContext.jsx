@@ -1,23 +1,25 @@
 import { createContext, useEffect, useState } from "react";
 import { toast } from "react-toastify";
-import {
-  authApi,
-  productApi,
-  cartApi,
-  categoryApi,
-  contentApi,
-} from "../api";
+import axios from "axios";
 
 export const ShopContext = createContext();
 
 const ShopContextProvider = (props) => {
-  // 1. Defaults to Naira (₦) immediately on load
+  const backendUrl =
+    import.meta.env.VITE_BACKEND_URL ||
+    "https://fullstackbackend-wwiu.onrender.com";
+
+  // Dynamic store currency synced directly from backend database
   const [currency, setCurrency] = useState(
     () => localStorage.getItem("storeCurrency") || "₦"
   );
-  const [logo, setLogo] = useState(localStorage.getItem("storeLogo") || "");
+  const [logo, setLogo] = useState(
+    () =>
+      localStorage.getItem("storeLogo") ||
+      "https://res.cloudinary.com/mnlkie5f/image/upload/v1789507436/bpcelqaydv0js1qopikv.png"
+  );
   const [storeName, setStoreName] = useState(
-    localStorage.getItem("storeName") || "TrendyTek"
+    () => localStorage.getItem("storeName") || "TRENDYTEK ENTERPRISES LIMITED"
   );
 
   // Dynamic Shipping & Distance Zones Configuration
@@ -55,7 +57,8 @@ const ShopContextProvider = (props) => {
     bankName: "Guaranty Trust Bank (GTBank)",
     accountName: "TRENDYTEK ENTERPRISES LTD",
     accountNumber: "0123456789",
-    bankInstructions: "Please use your Order Name or Phone Number as payment narration.",
+    bankInstructions:
+      "Please use your Order Name or Phone Number as payment narration.",
   });
 
   // Categories Dynamic State
@@ -111,11 +114,6 @@ const ShopContextProvider = (props) => {
     }
   }, []);
 
-  // Production backend fallback
-  const backendUrl =
-    import.meta.env.VITE_BACKEND_URL ||
-    "https://fullstackbackend-wwiu.onrender.com";
-
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [cartItems, setCartItems] = useState({});
@@ -131,7 +129,6 @@ const ShopContextProvider = (props) => {
     localStorage.getItem("userEmail") || ""
   );
 
-  // Keep token synced cleanly
   useEffect(() => {
     if (token) {
       localStorage.setItem("token", token);
@@ -146,29 +143,29 @@ const ShopContextProvider = (props) => {
   // Fetch live categories
   const getCategoriesData = async () => {
     try {
-      const response = await categoryApi.getCategories();
-      if (response && response.success && response.categories) {
-        setCategories(response.categories);
+      const response = await axios.get(backendUrl + "/api/category/list");
+      if (response.data && response.data.success && response.data.categories) {
+        setCategories(response.data.categories);
       }
     } catch (error) {
       console.warn("Categories fetch error:", error.message);
     }
   };
 
-  // Fetch store settings
+  // Fetch store settings (Currency, Logo, Shipping, Gateways)
   const getSettingsData = async () => {
     try {
-      const response = await contentApi.getSettings();
-      if (response && response.success && response.settings) {
-        const s = response.settings;
+      const response = await axios.get(backendUrl + "/api/settings/get");
+      if (response.data && response.data.success && response.data.settings) {
+        const s = response.data.settings;
 
         if (s.currency) {
           setCurrency(s.currency);
           localStorage.setItem("storeCurrency", s.currency);
         }
-        if (s.logo !== undefined) {
-          setLogo(s.logo || "");
-          localStorage.setItem("storeLogo", s.logo || "");
+        if (s.logo) {
+          setLogo(s.logo);
+          localStorage.setItem("storeLogo", s.logo);
         }
         if (s.storeName) {
           setStoreName(s.storeName);
@@ -205,7 +202,7 @@ const ShopContextProvider = (props) => {
         if (s.bankName || s.accountNumber) {
           setBankDetails({
             bankName: s.bankName || "Guaranty Trust Bank (GTBank)",
-            accountName: "TRENDYTEK ENTERPRISES LTD",
+            accountName: s.accountName || "TRENDYTEK ENTERPRISES LTD",
             accountNumber: s.accountNumber || "0123456789",
             bankInstructions:
               s.bankInstructions ||
@@ -213,28 +210,28 @@ const ShopContextProvider = (props) => {
           });
         }
 
-        setFooterData({
-          footerDescription:
-            s.footerDescription ||
-            "Discover the best trends and everyday essentials. Premium quality, fast delivery, and dedicated customer care tailored for your lifestyle.",
-          companyTitle: "COMPANY",
-          companyLinks:
-            s.companyLinks && s.companyLinks.length > 0
-              ? s.companyLinks
-              : [
-                  { title: "Home", url: "/" },
-                  { title: "About us", url: "/about" },
-                  { title: "Contact", url: "/contact" },
-                  { title: "Collection", url: "/collection" },
-                  { title: "Blog", url: "/blog" },
-                  { title: "FAQ", url: "/faq" },
-                ],
-          contactTitle: "GET IN TOUCH",
-          contactPhone: "+1-212-456-7890",
-          contactEmail: "contact@trendytek.com",
-          contactAddress: "",
-          copyrightText: "",
-        });
+        if (s.footerDescription || s.companyTitle || s.contactPhone) {
+          setFooterData({
+            footerDescription:
+              s.footerDescription ||
+              "Discover the best trends and everyday essentials. Premium quality, fast delivery, and dedicated customer care tailored for your lifestyle.",
+            companyTitle: s.companyTitle || "COMPANY",
+            companyLinks:
+              s.companyLinks && s.companyLinks.length > 0
+                ? s.companyLinks
+                : [
+                    { title: "Home", url: "/" },
+                    { title: "About us", url: "/about" },
+                    { title: "Contact", url: "/contact" },
+                    { title: "Collection", url: "/collection" },
+                  ],
+            contactTitle: s.contactTitle || "GET IN TOUCH",
+            contactPhone: s.contactPhone || "+1-212-456-7890",
+            contactEmail: s.contactEmail || "contact@trendytek.com",
+            contactAddress: s.contactAddress || "",
+            copyrightText: s.copyrightText || "",
+          });
+        }
       }
     } catch (error) {
       console.warn("Settings load error:", error.message);
@@ -318,19 +315,21 @@ const ShopContextProvider = (props) => {
   // Fetch logged in user profile
   const getUserProfileData = async () => {
     try {
-      const response = await authApi.getProfile();
-      if (response && response.success && response.user) {
-        if (response.user.image) {
-          setUserImage(response.user.image);
-          localStorage.setItem("userImage", response.user.image);
+      const response = await axios.get(backendUrl + "/api/user/profile", {
+        headers: { token, Authorization: `Bearer ${token}` },
+      });
+      if (response.data && response.data.success && response.data.user) {
+        if (response.data.user.image) {
+          setUserImage(response.data.user.image);
+          localStorage.setItem("userImage", response.data.user.image);
         }
-        if (response.user.name) {
-          setUserName(response.user.name);
-          localStorage.setItem("userName", response.user.name);
+        if (response.data.user.name) {
+          setUserName(response.data.user.name);
+          localStorage.setItem("userName", response.data.user.name);
         }
-        if (response.user.email) {
-          setUserEmail(response.user.email);
-          localStorage.setItem("userEmail", response.user.email);
+        if (response.data.user.email) {
+          setUserEmail(response.data.user.email);
+          localStorage.setItem("userEmail", response.data.user.email);
         }
       }
     } catch (error) {
@@ -368,7 +367,11 @@ const ShopContextProvider = (props) => {
 
     if (token) {
       try {
-        await cartApi.addToCart(itemId, size);
+        await axios.post(
+          backendUrl + "/api/cart/add",
+          { itemId, size },
+          { headers: { token, Authorization: `Bearer ${token}` } }
+        );
       } catch (error) {
         console.error("Cart add error:", error.message);
       }
@@ -400,7 +403,11 @@ const ShopContextProvider = (props) => {
 
     if (token) {
       try {
-        await cartApi.updateCart(itemId, size, quantity);
+        await axios.post(
+          backendUrl + "/api/cart/update",
+          { itemId, size, quantity },
+          { headers: { token, Authorization: `Bearer ${token}` } }
+        );
       } catch (error) {
         console.error("Cart update error:", error.message);
       }
@@ -428,9 +435,9 @@ const ShopContextProvider = (props) => {
   // Get Products List
   const getProductsData = async () => {
     try {
-      const response = await productApi.getProducts();
-      if (response && response.success && response.products) {
-        setProducts(response.products.slice().reverse());
+      const response = await axios.get(backendUrl + "/api/product/list");
+      if (response.data && response.data.success && response.data.products) {
+        setProducts(response.data.products.slice().reverse());
       }
     } catch (error) {
       console.warn("Products fetch error:", error.message);
@@ -440,31 +447,31 @@ const ShopContextProvider = (props) => {
   // Get User Cart
   const getUserCart = async () => {
     try {
-      const response = await cartApi.getCart();
-      if (response && response.success && response.cartData) {
-        setCartItems(response.cartData);
+      const response = await axios.post(
+        backendUrl + "/api/cart/get",
+        {},
+        { headers: { token, Authorization: `Bearer ${token}` } }
+      );
+      if (response.data && response.data.success && response.data.cartData) {
+        setCartItems(response.data.cartData);
       }
     } catch (error) {
       console.warn("Cart fetch error:", error.message);
     }
   };
 
-  // Initial Clean Mount Data Fetch
+  // Initial Data Fetch & Auto-Refresh on focus
   useEffect(() => {
     getProductsData();
     getSettingsData();
     getCategoriesData();
-  }, []);
 
-  // Sync on tab focus
-  useEffect(() => {
-    const handleFocus = () => {
+    // Auto-sync settings whenever user focuses the tab
+    const onFocus = () => {
       getSettingsData();
-      getProductsData();
-      getCategoriesData();
     };
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   useEffect(() => {
