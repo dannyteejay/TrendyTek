@@ -4,6 +4,33 @@ import axios from "axios";
 
 export const ShopContext = createContext();
 
+// Default fallback exchange rates relative to Base Currency (₦ Nigerian Naira)
+const DEFAULT_RATES_FROM_NGN = {
+  "₦": 1,
+  "$": 0.00075, // $1 ≈ ₦1,333
+  "€": 0.00064, // €1 ≈ ₦1,560
+  "£": 0.00055, // £1 ≈ ₦1,820
+  "₹": 0.0704,  // ₹1 ≈ ₦14.2
+  "C$": 0.00102, // C$1 ≈ ₦980
+  "A$": 0.00103, // A$1 ≈ ₦970
+  "GH₵": 0.0085, // GH₵1 ≈ ₦117
+  "KSh": 0.0975, // KSh1 ≈ ₦10.2
+  "R": 0.012,    // R1 ≈ ₦83.5
+};
+
+const SYMBOL_TO_CODE = {
+  "₦": "NGN",
+  "$": "USD",
+  "€": "EUR",
+  "£": "GBP",
+  "₹": "INR",
+  "C$": "CAD",
+  "A$": "AUD",
+  "GH₵": "GHS",
+  "KSh": "KES",
+  "R": "ZAR",
+};
+
 const ShopContextProvider = (props) => {
   const backendUrl =
     import.meta.env.VITE_BACKEND_URL ||
@@ -13,6 +40,15 @@ const ShopContextProvider = (props) => {
   const [currency, setCurrency] = useState(
     () => localStorage.getItem("storeCurrency") || "₦"
   );
+  const [exchangeRates, setExchangeRates] = useState(() => {
+    try {
+      const saved = localStorage.getItem("storeExchangeRates");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [logo, setLogo] = useState(
     () =>
       localStorage.getItem("storeLogo") ||
@@ -139,6 +175,48 @@ const ShopContextProvider = (props) => {
       localStorage.removeItem("userImage");
     }
   }, [token]);
+
+  // Fetch Live Real-World Exchange Rates (Base NGN)
+  const fetchExchangeRates = async () => {
+    try {
+      const response = await axios.get("https://open.er-api.com/v6/latest/NGN");
+      if (response.data && response.data.result === "success" && response.data.rates) {
+        setExchangeRates(response.data.rates);
+        localStorage.setItem("storeExchangeRates", JSON.stringify(response.data.rates));
+      }
+    } catch (error) {
+      console.warn("Using fallback exchange rates:", error.message);
+    }
+  };
+
+  // Convert raw base price (NGN) into active currency number
+  const convertPrice = (basePriceInNgn) => {
+    const priceNum = Number(basePriceInNgn) || 0;
+    if (!currency || currency === "₦") {
+      return priceNum;
+    }
+    const currCode = SYMBOL_TO_CODE[currency] || "USD";
+    const liveRate = exchangeRates && exchangeRates[currCode];
+    const fallbackRate = DEFAULT_RATES_FROM_NGN[currency] || 0.00075;
+    const rate = liveRate || fallbackRate;
+    return priceNum * rate;
+  };
+
+  // Format raw base price (NGN) into full display string: e.g. "$37.45", "₦50,000", "€32.00"
+  const formatPrice = (basePriceInNgn) => {
+    const priceNum = Number(basePriceInNgn) || 0;
+    if (!currency || currency === "₦") {
+      return `₦${Math.round(priceNum).toLocaleString()}`;
+    }
+    const converted = convertPrice(priceNum);
+    if (currency === "₹" || currency === "KSh") {
+      return `${currency}${Math.round(converted).toLocaleString()}`;
+    }
+    return `${currency}${converted.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
 
   // Fetch live categories
   const getCategoriesData = async () => {
@@ -414,7 +492,7 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // Cart Total Amount
+  // Cart Total Base Amount (in NGN)
   const getCartAmount = () => {
     let totalAmount = 0;
     for (const items in cartItems) {
@@ -462,6 +540,7 @@ const ShopContextProvider = (props) => {
 
   // Initial Data Fetch & Auto-Refresh on focus
   useEffect(() => {
+    fetchExchangeRates();
     getProductsData();
     getSettingsData();
     getCategoriesData();
@@ -469,6 +548,7 @@ const ShopContextProvider = (props) => {
     // Auto-sync settings whenever user focuses the tab
     const onFocus = () => {
       getSettingsData();
+      fetchExchangeRates();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -486,6 +566,9 @@ const ShopContextProvider = (props) => {
     products,
     currency,
     setCurrency,
+    exchangeRates,
+    convertPrice,
+    formatPrice,
     logo,
     setLogo,
     storeName,

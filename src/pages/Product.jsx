@@ -6,7 +6,8 @@ import RelatedProducts from "../components/RelatedProducts";
 
 const Product = () => {
   const { productId } = useParams();
-  const { products, currency, addToCart } = useContext(ShopContext);
+  const { products, currency, formatPrice, addToCart } =
+    useContext(ShopContext);
   const [productData, setProductData] = useState(false);
   const [image, setImage] = useState("");
   const [size, setSize] = useState("");
@@ -33,6 +34,13 @@ const Product = () => {
     productData &&
     Array.isArray(productData.sizes) &&
     productData.sizes.length > 0;
+
+  const displayPrice =
+    productData && productData.price !== undefined
+      ? typeof formatPrice === "function"
+        ? formatPrice(productData.price)
+        : `${currency}${Number(productData.price).toLocaleString()}`
+      : "";
 
   return productData ? (
     <div className="pt-10 transition-opacity duration-500 ease-in border-t-2 opacity-100">
@@ -70,12 +78,8 @@ const Product = () => {
             <p className="pl-2">(122)</p>
           </div>
 
-          {/* 💰 Price with Thousands Separator Comma */}
-          <p className="mt-5 text-3xl font-medium">
-            {currency}
-            {Number(productData.price).toLocaleString()}
-          </p>
-
+          {/* Converted & Formatted Product Price */}
+          <p className="mt-5 text-3xl font-medium">{displayPrice}</p>
           <p className="mt-5 text-gray-500 md:w-4/5">{productData.description}</p>
 
           {/* Size Selector */}

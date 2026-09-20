@@ -3,12 +3,18 @@ import { ShopContext } from "../context/ShopContext";
 import { Link } from "react-router-dom";
 
 const ProductItem = ({ id, image, name, price }) => {
-  const { currency } = useContext(ShopContext);
+  const { formatPrice, currency } = useContext(ShopContext);
 
   const productImage =
     image && Array.isArray(image) && image.length > 0
       ? image[0]
       : image || "";
+
+  // Dynamic automatic currency conversion
+  const formattedPrice =
+    typeof formatPrice === "function"
+      ? formatPrice(price)
+      : `${currency || "₦"}${Number(price).toLocaleString()}`;
 
   return (
     <Link
@@ -25,11 +31,8 @@ const ProductItem = ({ id, image, name, price }) => {
       <p className="pt-3 pb-1 text-sm font-semibold text-gray-900 dark:text-gray-100 line-clamp-1">
         {name}
       </p>
-
-      {/* 💰 Formatted with thousands separator comma */}
       <p className="text-sm font-bold text-gray-800 dark:text-gray-200">
-        {currency}
-        {Number(price).toLocaleString()}
+        {formattedPrice}
       </p>
     </Link>
   );
