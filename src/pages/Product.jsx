@@ -69,10 +69,13 @@ const Product = () => {
             <img src={assets.star_dull_icon} alt="Ratings" className="w-3.5" />
             <p className="pl-2">(122)</p>
           </div>
+
+          {/* 💰 Price with Thousands Separator Comma */}
           <p className="mt-5 text-3xl font-medium">
             {currency}
-            {productData.price}
+            {Number(productData.price).toLocaleString()}
           </p>
+
           <p className="mt-5 text-gray-500 md:w-4/5">{productData.description}</p>
 
           {/* Size Selector */}
