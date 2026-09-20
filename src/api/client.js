@@ -1,9 +1,14 @@
 import axios from "axios";
 import { toast } from "react-toastify";
 
+// Production backend URL fallback
+const API_BASE_URL =
+  import.meta.env.VITE_BACKEND_URL ||
+  "https://fullstackbackend-wwiu.onrender.com";
+
 // Create configured Axios instance
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || "http://localhost:4000",
+  baseURL: API_BASE_URL,
   timeout: 15000,
   headers: {
     "Content-Type": "application/json",
@@ -20,12 +25,16 @@ apiClient.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    return Promise.reject(error);
+  }
 );
 
 // Response Interceptor: Centralized Error & Session Handling
 apiClient.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    return response.data;
+  },
   (error) => {
     const message =
       error.response?.data?.message ||
@@ -40,11 +49,11 @@ apiClient.interceptors.response.use(
         toast.error("Session expired. Please log in again.");
       }
     } else if (error.response?.status === 429) {
+      // Handle Rate Limiting
       toast.warning("Too many requests. Please slow down.");
-    } else if (error.response) {
-      toast.error(message);
     }
 
+    // Prevents automatic 404 toast popups on background sync requests
     return Promise.reject(new Error(message));
   }
 );
