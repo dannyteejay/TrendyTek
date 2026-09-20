@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext } from "react";
+import React, { useState, useEffect, useRef, useContext, useCallback } from "react";
 import { ShopContext } from "../context/ShopContext";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -6,11 +6,11 @@ import { toast } from "react-toastify";
 /**
  * 🤖 TrendyAI - Multimodal Voice & Visual Smart Shopping Assistant
  * Features:
- * 1. 🎙️ Voice-driven ordering and search (Web Speech API)
- * 2. 📸 Image & screenshot product recognition (Visual matcher)
- * 3. 🛒 1-Click interactive "Add to Cart" and direct checkout
- * 4. 🔊 Voice response text-to-speech with mute toggle
- * 5. 💡 Smart catalog recommendation engine
+ * 1. 🎙️ Real-Time Voice Search & Conversational Ordering (Web Speech API)
+ * 2. 📸 Photo & Screenshot Visual Product Search
+ * 3. 💬 Conversational FAQ & Store Knowledge (Handles general questions like "Do you have cars?", greetings, policies)
+ * 4. 🛒 1-Click Interactive Cart Addition & Instant Checkout
+ * 5. 🔊 Spoken Text-to-Speech Audio Feedback with Mute Toggle
  */
 const TrendyAI = () => {
   const shopContext = useContext(ShopContext) || {};
@@ -19,45 +19,325 @@ const TrendyAI = () => {
     currency = "₦",
     addToCart = () => {},
     getCartAmount = () => 0,
+    storeName = "TrendyTek",
   } = shopContext;
 
   const navigate = useNavigate();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [transcriptPreview, setTranscriptPreview] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [speechSupported, setSpeechSupported] = useState(false);
   const [messages, setMessages] = useState([
     {
       id: "welcome",
       sender: "ai",
-      text: "👋 Hi there! I'm **TrendyAI**, your personal smart shopping assistant.\n\nYou can **speak to me** 🎙️ to find items, or **upload a photo/screenshot** 📸 of any product you want to buy!",
+      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n🎙️ **Speak to me** to find products or place orders\n📸 **Upload a photo/screenshot** of any item\n💬 **Ask me anything** about our store and collection!`,
       timestamp: new Date(),
       products: [],
       suggestions: [
-        "📸 Find product by photo",
-        "🎙️ Order by voice",
+        "📸 Search by photo",
         "🔥 Best sellers",
         "👗 New arrivals",
+        "💰 Items under ₦20,000",
       ],
     },
   ]);
   const [inputText, setInputText] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [uploadedImagePreview, setUploadedImagePreview] = useState(null);
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
+  const handleUserMessageRef = useRef(null);
 
-  // Auto-scroll to bottom of conversation
+  // Auto-scroll chat
   useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isOpen]);
+  }, [messages, isOpen, isProcessing, transcriptPreview]);
 
-  // Safe initialize Web Speech API
+  // Voice Speaker (TTS)
+  const speakText = useCallback(
+    (text) => {
+      if (!voiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
+
+      try {
+        window.speechSynthesis.cancel();
+        const cleanText = text
+          .replace(/[*_#`~]/g, "")
+          .replace(/https?:\/\/\S+/g, "")
+          .replace(/₦/g, " Naira ")
+          .slice(0, 200);
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.lang = "en-US";
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.warn("TTS speak error:", e);
+      }
+    },
+    [voiceEnabled]
+  );
+
+  // Catalog Matcher
+  const searchCatalog = useCallback(
+    (query, filters = {}) => {
+      if (!products || !Array.isArray(products) || products.length === 0) return [];
+
+      const q = (query || "").toLowerCase().trim();
+      if (!q) return products.slice(0, 4);
+
+      // Remove conversational filler words
+      const clean = q.replace(/\b(do|you|have|any|a|the|show|me|find|looking|for|can|i|get|want|to|buy|sell|is|there|are)\b/gi, "").trim();
+      const words = (clean || q).split(/\s+/).filter((w) => w.length >= 2);
+
+      let matches = products.filter((p) => {
+        if (!p) return false;
+        const pName = (p.name || "").toLowerCase();
+        const pDesc = (p.description || "").toLowerCase();
+        const pCat = (p.category || "").toLowerCase();
+        const pSub = (p.subCategory || "").toLowerCase();
+
+        if (filters.category && !pCat.includes(filters.category.toLowerCase())) return false;
+        if (filters.maxPrice && Number(p.price) > filters.maxPrice) return false;
+        if (filters.minPrice && Number(p.price) < filters.minPrice) return false;
+
+        // Exact term match
+        if (clean && (pName.includes(clean) || pCat.includes(clean) || pSub.includes(clean) || pDesc.includes(clean))) {
+          return true;
+        }
+
+        // Word score
+        const score = words.reduce((acc, w) => {
+          if (pName.includes(w)) return acc + 4;
+          if (pCat.includes(w)) return acc + 3;
+          if (pSub.includes(w)) return acc + 2;
+          if (pDesc.includes(w)) return acc + 1;
+          return acc;
+        }, 0);
+
+        return score >= 2;
+      });
+
+      return matches.slice(0, 4);
+    },
+    [products]
+  );
+
+  // 🧠 Conversational Brain & Query Processor
+  const processQuery = useCallback(
+    async (userQuery, imageAnalysisData = null) => {
+      setIsProcessing(true);
+      const raw = (userQuery || "").trim();
+      const lower = raw.toLowerCase();
+
+      // 1. Greetings & Friendly Small Talk
+      if (/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|yo)\b/i.test(lower)) {
+        const reply = `👋 Hello! Welcome to **${storeName}**! How can I help you today? You can ask me to find outfits, check bestsellers, or upload a photo to match.`;
+        speakText("Hello! Welcome to TrendyTek. How can I help you find what you need today?");
+        return {
+          text: reply,
+          products: (products || []).slice(0, 2),
+          suggestions: ["🔥 Show Best Sellers", "👗 Women's Collection", "👔 Men's Collection"],
+        };
+      }
+
+      // 2. Questions about out-of-scope inventory (e.g., "Do you have a car?", "Do you sell laptops/cars/groceries?")
+      if (
+        lower.includes("car") ||
+        lower.includes("vehicle") ||
+        lower.includes("automobile") ||
+        lower.includes("house") ||
+        lower.includes("pet") ||
+        lower.includes("groceries") ||
+        lower.includes("food")
+      ) {
+        const reply = `🚗 We specialize in **fashion, trendy clothing, footwear, and lifestyle apparel**, so we don't sell vehicles or groceries!\n\nTake a look at some of our popular clothing collections below:`;
+        speakText("We specialize in premium fashion and apparel, but we do not sell cars. Here are some of our popular collections.");
+        return {
+          text: reply,
+          products: (products || []).slice(0, 4),
+          suggestions: ["🔥 Best sellers", "👔 Men's wear", "👗 Women's wear"],
+        };
+      }
+
+      // 3. Questions about store identity ("Who are you?", "What do you sell?")
+      if (lower.includes("what do you sell") || lower.includes("what is this store") || lower.includes("who are you")) {
+        const reply = `✨ **${storeName}** is your destination for premium quality fashion, stylish outfits, and lifestyle essentials.\n\nBrowse our trending items below or let me know what style you're looking for!`;
+        speakText(`TrendyTek is your home for quality fashion and apparel. What style are you looking for today?`);
+        return {
+          text: reply,
+          products: (products || []).slice(0, 4),
+          suggestions: ["🔥 Best Sellers", "👗 Women's Wear", "👔 Men's Wear", "🛒 View Cart"],
+        };
+      }
+
+      // 4. Order by Voice / Add to Cart
+      if (lower.includes("add") && (lower.includes("cart") || lower.includes("bag") || lower.includes("buy"))) {
+        let extractedSize = "Standard";
+        const sizeMatch = lower.match(/\b(size\s+)?(xxl|xl|l|m|s|small|medium|large|extra large)\b/i);
+        if (sizeMatch) {
+          const s = sizeMatch[2].toLowerCase();
+          if (s === "small" || s === "s") extractedSize = "S";
+          else if (s === "medium" || s === "m") extractedSize = "M";
+          else if (s === "large" || s === "l") extractedSize = "L";
+          else if (s === "xl" || s === "extra large") extractedSize = "XL";
+          else if (s === "xxl") extractedSize = "XXL";
+        }
+
+        const cleanQuery = lower
+          .replace(/add|to|my|the|cart|bag|please|size|small|medium|large|extra|xl|xxl|m|l|s|buy/gi, "")
+          .trim();
+
+        const matched = searchCatalog(cleanQuery || lower);
+
+        if (matched.length > 0) {
+          const item = matched[0];
+          const finalSize =
+            item.sizes && Array.isArray(item.sizes) && item.sizes.length > 0
+              ? item.sizes.includes(extractedSize)
+                ? extractedSize
+                : item.sizes[0]
+              : "Standard";
+
+          try {
+            addToCart(item._id, finalSize);
+          } catch (err) {
+            console.error("Cart add error:", err);
+          }
+
+          const reply = `🛒 I've added **${item.name}** (Size: ${finalSize}) to your cart for **${currency}${item.price?.toLocaleString?.() || item.price}**!`;
+          speakText(`I added ${item.name} to your cart.`);
+
+          return {
+            text: reply,
+            products: [item],
+            suggestions: ["💳 Proceed to Checkout", "🛍️ View Cart", "🔥 Show More Items"],
+          };
+        }
+      }
+
+      // 5. View Cart / Checkout
+      if (lower.includes("view cart") || lower.includes("my cart") || lower.includes("checkout") || lower.includes("pay")) {
+        const amount = getCartAmount();
+        const reply = `🛒 Your cart total is **${currency}${amount?.toLocaleString?.() || amount}**. Would you like to proceed to checkout?`;
+        speakText("Your cart is ready for checkout.");
+        return {
+          text: reply,
+          products: [],
+          suggestions: ["💳 Go to Checkout", "🛍️ Keep Shopping"],
+        };
+      }
+
+      // 6. Best Sellers / Trending
+      if (lower.includes("best") || lower.includes("popular") || lower.includes("trending") || lower.includes("top")) {
+        const bestSellers = (products || []).filter((p) => p && p.bestSeller).slice(0, 4);
+        const items = bestSellers.length > 0 ? bestSellers : (products || []).slice(0, 4);
+        const reply = `🔥 Here are our **top best-selling items**:`;
+        speakText("Here are our top trending best sellers.");
+        return {
+          text: reply,
+          products: items,
+          suggestions: ["👔 Men's Wear", "👗 Women's Wear", "💰 Under ₦20,000"],
+        };
+      }
+
+      // 7. Budget / Price Range
+      const priceMatch = lower.match(/(under|below|less than|budget)\s*([0-9,]+)/i);
+      if (priceMatch) {
+        const maxPrice = Number(priceMatch[2].replace(/,/g, ""));
+        const cleanTerm = lower.replace(/(under|below|less than|budget)\s*([0-9,]+)/gi, "").trim();
+        const items = searchCatalog(cleanTerm, { maxPrice });
+
+        if (items.length > 0) {
+          const reply = `💰 Here are items within your budget of **${currency}${maxPrice.toLocaleString()}**:`;
+          speakText(`Found ${items.length} items within your budget.`);
+          return { text: reply, products: items, suggestions: ["🔥 Best sellers", "👗 View all"] };
+        }
+      }
+
+      // 8. Image-driven Query
+      if (imageAnalysisData) {
+        const matches = searchCatalog(imageAnalysisData.keywords);
+        const reply = `📸 **Visual Match Found:** I analyzed your image and found matching store items:`;
+        speakText("I found matching products based on your image.");
+        return {
+          text: reply,
+          products: matches.length > 0 ? matches : (products || []).slice(0, 3),
+          suggestions: ["🛒 Add to cart", "👗 View collection"],
+        };
+      }
+
+      // 9. Standard Catalog Search
+      const foundItems = searchCatalog(lower);
+      if (foundItems.length > 0) {
+        const reply = `✨ Found **${foundItems.length} matching item${foundItems.length > 1 ? "s" : ""}** for "${raw}":`;
+        speakText(`Found ${foundItems.length} items for ${raw}.`);
+        return {
+          text: reply,
+          products: foundItems,
+          suggestions: ["🛒 Add to cart", "🔥 Best sellers"],
+        };
+      }
+
+      // 10. Fallback with Recommendations
+      const fallbackProducts = (products || []).slice(0, 3);
+      const reply = `I couldn't find any products matching **"${raw}"** in our store catalog.\n\nHere are some popular fashion items you might love instead:`;
+      speakText(`I couldn't find an exact match for ${raw}, but here are some popular items in our store.`);
+      return {
+        text: reply,
+        products: fallbackProducts,
+        suggestions: ["👗 Women's wear", "👔 Men's wear", "🔥 Best sellers"],
+      };
+    },
+    [products, currency, addToCart, getCartAmount, storeName, searchCatalog, speakText]
+  );
+
+  // Message Handler
+  const handleUserMessage = useCallback(
+    async (text, imgData = null) => {
+      if (!text && !imgData) return;
+
+      const query = text || "Search with uploaded image";
+      const userMsg = {
+        id: Date.now().toString(),
+        sender: "user",
+        text: query,
+        image: imgData?.preview || null,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, userMsg]);
+      setInputText("");
+      setTranscriptPreview("");
+
+      const result = await processQuery(query, imgData);
+      setIsProcessing(false);
+
+      const aiMsg = {
+        id: (Date.now() + 1).toString(),
+        sender: "ai",
+        text: result.text,
+        products: result.products || [],
+        suggestions: result.suggestions || [],
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, aiMsg]);
+    },
+    [processQuery]
+  );
+
+  // Keep latest reference for SpeechRecognition
+  useEffect(() => {
+    handleUserMessageRef.current = handleUserMessage;
+  }, [handleUserMessage]);
+
+  // Initialize SpeechRecognition Engine
   useEffect(() => {
     try {
       if (typeof window !== "undefined") {
@@ -65,32 +345,47 @@ const TrendyAI = () => {
           window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (SpeechRecognition) {
-          setSpeechSupported(true);
           const recognition = new SpeechRecognition();
           recognition.continuous = false;
-          recognition.interimResults = false;
+          recognition.interimResults = true;
           recognition.lang = "en-US";
 
           recognition.onstart = () => {
             setIsListening(true);
+            setTranscriptPreview("Listening... Speak now!");
           };
 
           recognition.onresult = (event) => {
-            try {
-              const transcript = event.results[0][0].transcript;
+            let finalTranscript = "";
+            let interim = "";
+
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript;
+              } else {
+                interim += event.results[i][0].transcript;
+              }
+            }
+
+            if (interim) {
+              setTranscriptPreview(interim);
+            }
+
+            if (finalTranscript) {
               setIsListening(false);
-              handleUserMessage(transcript);
-            } catch (err) {
-              console.warn("Speech parse error:", err);
-              setIsListening(false);
+              setTranscriptPreview("");
+              if (handleUserMessageRef.current) {
+                handleUserMessageRef.current(finalTranscript);
+              }
             }
           };
 
           recognition.onerror = (event) => {
-            console.warn("Speech recognition error:", event.error);
+            console.warn("Speech error:", event.error);
             setIsListening(false);
+            setTranscriptPreview("");
             if (event.error === "not-allowed") {
-              toast.warn("Microphone access was blocked. Please enable it in your browser settings.");
+              toast.warn("Microphone permission was denied. Please allow microphone access in your browser.");
             }
           };
 
@@ -102,262 +397,49 @@ const TrendyAI = () => {
         }
       }
     } catch (e) {
-      console.warn("Speech Recognition initialization failed:", e);
+      console.warn("Speech Recognition init error:", e);
     }
-  }, [products]);
+  }, []);
 
-  // Text-To-Speech response speaker
-  const speakText = (text) => {
-    if (!voiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
-
-    try {
-      window.speechSynthesis.cancel(); // Stop ongoing speech
-      const cleanText = text
-        .replace(/[*_#`]/g, "")
-        .replace(/https?:\/\/\S+/g, "")
-        .slice(0, 180);
-
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      utterance.lang = "en-US";
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.warn("TTS error:", e);
-    }
-  };
-
-  // Toggle Voice Recording
+  // Toggle Microphone
   const toggleListening = () => {
+    if (!isOpen) {
+      setIsOpen(true);
+    }
+
     if (!recognitionRef.current) {
-      toast.info("Voice recognition is not supported in this browser. You can type or upload an image instead!");
+      toast.info("Voice recognition is not supported in this browser. You can type your request or upload a photo!");
       return;
     }
 
     if (isListening) {
       try {
         recognitionRef.current.stop();
-      } catch (e) {
         setIsListening(false);
-      }
+        setTranscriptPreview("");
+      } catch (e) {}
     } else {
       try {
         recognitionRef.current.start();
-        toast.info("🎙️ Listening... Speak now!");
       } catch (e) {
         try {
           recognitionRef.current.stop();
+          setTimeout(() => recognitionRef.current?.start(), 200);
         } catch (err) {}
       }
     }
   };
 
-  // Fuzzy Catalog Search & Matcher Engine
-  const searchCatalog = (query, filters = {}) => {
-    if (!products || !Array.isArray(products) || products.length === 0) return [];
-
-    const q = (query || "").toLowerCase().trim();
-    if (!q) return products.slice(0, 4);
-
-    const words = q.split(/\s+/).filter((w) => w.length > 2);
-
-    let matches = products.filter((p) => {
-      if (!p) return false;
-      const pName = (p.name || "").toLowerCase();
-      const pDesc = (p.description || "").toLowerCase();
-      const pCat = (p.category || "").toLowerCase();
-      const pSub = (p.subCategory || "").toLowerCase();
-
-      // Category / Subcategory filter
-      if (filters.category && !pCat.includes(filters.category.toLowerCase())) return false;
-      if (filters.maxPrice && p.price > filters.maxPrice) return false;
-      if (filters.minPrice && p.price < filters.minPrice) return false;
-
-      // Exact phrase match in name, category, or subcategory
-      if (pName.includes(q) || pCat.includes(q) || pSub.includes(q)) return true;
-
-      // Word-by-word score
-      const matchScore = words.reduce((score, w) => {
-        if (pName.includes(w)) return score + 3;
-        if (pCat.includes(w)) return score + 2;
-        if (pDesc.includes(w)) return score + 1;
-        return score;
-      }, 0);
-
-      return matchScore >= 2;
-    });
-
-    return matches.slice(0, 4);
-  };
-
-  // 🧠 Natural Language & Voice Intent Processor
-  const processQuery = async (userQuery, imageAnalysisData = null) => {
-    setIsProcessing(true);
-    const lower = (userQuery || "").toLowerCase().trim();
-
-    // 1. Direct Add To Cart by Voice (e.g., "Add black shirt to cart")
-    if (lower.includes("add") && (lower.includes("cart") || lower.includes("bag"))) {
-      let extractedSize = "Standard";
-      const sizeMatch = lower.match(/\b(size\s+)?(xxl|xl|l|m|s|small|medium|large|extra large)\b/i);
-      if (sizeMatch) {
-        const rawSize = sizeMatch[2].toLowerCase();
-        if (rawSize === "small" || rawSize === "s") extractedSize = "S";
-        else if (rawSize === "medium" || rawSize === "m") extractedSize = "M";
-        else if (rawSize === "large" || rawSize === "l") extractedSize = "L";
-        else if (rawSize === "xl" || rawSize === "extra large") extractedSize = "XL";
-        else if (rawSize === "xxl") extractedSize = "XXL";
-      }
-
-      const cleanQuery = lower
-        .replace(/add|to|my|the|cart|bag|please|size|small|medium|large|extra|xl|xxl|m|l|s/gi, "")
-        .trim();
-
-      const matched = searchCatalog(cleanQuery || lower);
-
-      if (matched.length > 0) {
-        const item = matched[0];
-        const finalSize =
-          item.sizes && Array.isArray(item.sizes) && item.sizes.length > 0
-            ? item.sizes.includes(extractedSize)
-              ? extractedSize
-              : item.sizes[0]
-            : "Standard";
-
-        try {
-          addToCart(item._id, finalSize);
-        } catch (err) {
-          console.error("addToCart error:", err);
-        }
-
-        const reply = `🛒 I've added **${item.name}** (Size: ${finalSize}) to your shopping cart for **${currency}${item.price?.toLocaleString?.() || item.price}**!`;
-        speakText(`I added ${item.name} to your cart.`);
-
-        return {
-          text: reply,
-          products: [item],
-          suggestions: ["Proceed to checkout", "View my cart", "Show more items"],
-        };
-      }
-    }
-
-    // 2. View Cart / Checkout
-    if (lower.includes("view cart") || lower.includes("my cart") || lower.includes("checkout") || lower.includes("pay")) {
-      const amount = getCartAmount();
-      const reply = `🛒 Your cart total is **${currency}${amount?.toLocaleString?.() || amount}**. Would you like to proceed to checkout?`;
-      speakText("Your cart is ready for checkout.");
-      return {
-        text: reply,
-        products: [],
-        suggestions: ["💳 Go to Checkout", "🛍️ Keep Shopping"],
-        action: "cart",
-      };
-    }
-
-    // 3. Best Sellers & Trends
-    if (lower.includes("best") || lower.includes("popular") || lower.includes("trending") || lower.includes("top")) {
-      const bestSellers = (products || []).filter((p) => p && p.bestSeller).slice(0, 4);
-      const items = bestSellers.length > 0 ? bestSellers : (products || []).slice(0, 4);
-      const reply = `🔥 Here are our **top best-selling items** right now:`;
-      speakText("Here are our top trending best sellers.");
-      return {
-        text: reply,
-        products: items,
-        suggestions: ["Men's collection", "Women's collection", "Under ₦20,000"],
-      };
-    }
-
-    // 4. Price-Filtered Search (e.g., "items under 15000", "cheap shoes")
-    const priceMatch = lower.match(/(under|below|less than)\s*([0-9,]+)/i);
-    if (priceMatch) {
-      const maxPrice = Number(priceMatch[2].replace(/,/g, ""));
-      const cleanTerm = lower.replace(/(under|below|less than)\s*([0-9,]+)/gi, "").trim();
-      const items = searchCatalog(cleanTerm, { maxPrice });
-
-      if (items.length > 0) {
-        const reply = `💰 Here are items under **${currency}${maxPrice.toLocaleString()}**:`;
-        speakText(`Found ${items.length} items within your budget.`);
-        return { text: reply, products: items, suggestions: ["Show best sellers", "View all collection"] };
-      }
-    }
-
-    // 5. Image-driven Query Handling
-    if (imageAnalysisData) {
-      const matches = searchCatalog(imageAnalysisData.keywords);
-      const reply = `📸 **Visual Match Found:** I analyzed your image and found matching items in our store:`;
-      speakText("I found matching products based on your image.");
-      return {
-        text: reply,
-        products: matches.length > 0 ? matches : (products || []).slice(0, 3),
-        suggestions: ["Add to cart", "Check other colors", "View collection"],
-      };
-    }
-
-    // 6. General Catalog Search
-    const foundItems = searchCatalog(lower);
-    if (foundItems.length > 0) {
-      const reply = `✨ Found **${foundItems.length} matching product${foundItems.length > 1 ? "s" : ""}** for "${userQuery}":`;
-      speakText(`Found ${foundItems.length} products matching your request.`);
-      return {
-        text: reply,
-        products: foundItems,
-        suggestions: ["Add to cart", "Best sellers", "View all"],
-      };
-    }
-
-    // 7. General Friendly Fallback
-    const fallbackProducts = (products || []).slice(0, 3);
-    const reply = `I couldn't find an exact match for "${userQuery}", but here are some of our popular recommendations you might love:`;
-    speakText("Here are some popular recommendations from our store.");
-    return {
-      text: reply,
-      products: fallbackProducts,
-      suggestions: ["👗 Women's wear", "👔 Men's wear", "🔥 Best sellers"],
-    };
-  };
-
-  // Submit User Message
-  const handleUserMessage = async (text, imgData = null) => {
-    if (!text && !imgData) return;
-
-    const query = text || "Search with uploaded image";
-    const userMsg = {
-      id: Date.now().toString(),
-      sender: "user",
-      text: query,
-      image: imgData?.preview || null,
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setInputText("");
-    setUploadedImagePreview(null);
-
-    const result = await processQuery(query, imgData);
-    setIsProcessing(false);
-
-    const aiMsg = {
-      id: (Date.now() + 1).toString(),
-      sender: "ai",
-      text: result.text,
-      products: result.products || [],
-      suggestions: result.suggestions || [],
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, aiMsg]);
-  };
-
-  // 📸 Handle Image Upload / Screenshot Paste
+  // Image Upload Handler
   const handleImageUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!isOpen) setIsOpen(true);
+
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result;
-      setUploadedImagePreview(base64);
-
-      // Smart Visual Keyword Extraction based on filename
       const fileNameKeywords = file.name
         .replace(/[-_.]/g, " ")
         .replace(/\b(image|img|screenshot|photo|png|jpg|jpeg)\b/gi, "")
@@ -375,7 +457,7 @@ const TrendyAI = () => {
 
   return (
     <>
-      {/* 1. Floating AI Shopping Launcher Button (Fixed at bottom-right corner) */}
+      {/* 1. Floating AI Shopping Launcher Button */}
       <div
         style={{
           position: "fixed",
@@ -403,9 +485,7 @@ const TrendyAI = () => {
           aria-label="Open AI Shopping Assistant"
           title="Open TrendyAI Assistant"
           className="relative flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-black via-gray-900 to-blue-600 text-white shadow-2xl hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white/30"
-          style={{
-            boxShadow: "0 10px 30px rgba(0, 102, 255, 0.4)",
-          }}
+          style={{ boxShadow: "0 10px 30px rgba(0, 102, 255, 0.4)" }}
         >
           {isOpen ? (
             <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -413,11 +493,9 @@ const TrendyAI = () => {
             </svg>
           ) : (
             <>
-              {/* Bot / Sparkle Icon */}
               <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              {/* Glowing AI Badge */}
               <span className="absolute -top-1 -right-1 flex h-5 w-5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-5 w-5 bg-blue-600 text-[10px] font-extrabold items-center justify-center text-white border border-white">
@@ -429,7 +507,7 @@ const TrendyAI = () => {
         </button>
       </div>
 
-      {/* 2. Interactive AI Shopping Modal / Drawer */}
+      {/* 2. Interactive AI Shopping Drawer / Chat Modal */}
       {isOpen && (
         <div
           style={{
@@ -438,7 +516,7 @@ const TrendyAI = () => {
             right: "20px",
             zIndex: 99999,
           }}
-          className="w-[92vw] sm:w-[420px] h-[560px] max-h-[80vh] bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-neutral-800 flex flex-col overflow-hidden animate-fade-in"
+          className="w-[92vw] sm:w-[420px] h-[580px] max-h-[82vh] bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-neutral-800 flex flex-col overflow-hidden animate-fade-in"
         >
           {/* Header */}
           <div className="px-4 py-3 bg-gradient-to-r from-gray-900 via-neutral-900 to-blue-900 text-white flex items-center justify-between">
@@ -456,16 +534,14 @@ const TrendyAI = () => {
             </div>
 
             <div className="flex items-center gap-1.5">
-              {/* Mute / Unmute TTS */}
               <button
                 onClick={() => setVoiceEnabled(!voiceEnabled)}
-                title={voiceEnabled ? "Voice output enabled" : "Voice output muted"}
+                title={voiceEnabled ? "Voice audio feedback enabled" : "Voice audio feedback muted"}
                 className="p-1.5 text-gray-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
               >
                 {voiceEnabled ? "🔊" : "🔇"}
               </button>
 
-              {/* Close Button */}
               <button
                 onClick={() => setIsOpen(false)}
                 className="p-1.5 text-gray-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
@@ -475,7 +551,7 @@ const TrendyAI = () => {
             </div>
           </div>
 
-          {/* Chat Messages Area */}
+          {/* Chat Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50 dark:bg-neutral-950/50">
             {messages.map((msg) => (
               <div
@@ -489,7 +565,6 @@ const TrendyAI = () => {
                       : "bg-white dark:bg-neutral-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-neutral-700 rounded-bl-xs"
                   }`}
                 >
-                  {/* User Uploaded Image Preview */}
                   {msg.image && (
                     <img
                       src={msg.image}
@@ -497,11 +572,10 @@ const TrendyAI = () => {
                       className="w-full max-h-36 object-cover rounded-lg mb-2 border border-white/20"
                     />
                   )}
-
                   <p className="whitespace-pre-wrap">{msg.text}</p>
                 </div>
 
-                {/* Interactive Product Recommendation Cards */}
+                {/* Product Cards */}
                 {msg.products && msg.products.length > 0 && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2.5 w-full max-w-[95%]">
                     {msg.products.map((item) => (
@@ -529,7 +603,6 @@ const TrendyAI = () => {
                           </p>
                         </div>
 
-                        {/* 1-Click Order / Add to Cart */}
                         <button
                           onClick={() => {
                             const size = item.sizes?.[0] || "Standard";
@@ -544,7 +617,7 @@ const TrendyAI = () => {
                   </div>
                 )}
 
-                {/* Clickable Quick Suggestion Chips */}
+                {/* Quick Chips */}
                 {msg.suggestions && msg.suggestions.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {msg.suggestions.map((sug, i) => (
@@ -575,30 +648,30 @@ const TrendyAI = () => {
 
             {isProcessing && (
               <div className="flex items-center gap-2 text-xs text-gray-500 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-full px-3 py-1.5 w-fit animate-pulse">
-                <span>🤖</span> Searching store catalog & analyzing...
+                <span>🤖</span> Analyzing request & checking store inventory...
               </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Listening Pulsing Waveform Banner */}
+          {/* Live Voice Recording Banner */}
           {isListening && (
-            <div className="px-4 py-2 bg-red-500 text-white flex items-center justify-between animate-pulse text-xs font-semibold">
+            <div className="px-4 py-2.5 bg-red-600 text-white flex items-center justify-between animate-pulse text-xs font-semibold">
               <span className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 bg-white rounded-full animate-ping"></span>
-                🎙️ Listening to your voice... Speak your order!
+                🎙️ {transcriptPreview || "Listening... Speak your order or question!"}
               </span>
               <button
                 onClick={toggleListening}
                 className="underline text-[11px] font-bold cursor-pointer"
               >
-                Stop
+                Done
               </button>
             </div>
           )}
 
-          {/* Input & Action Bar */}
+          {/* Input Bar */}
           <div className="p-3 bg-white dark:bg-neutral-900 border-t border-gray-200 dark:border-neutral-800">
             <form
               onSubmit={(e) => {
@@ -607,7 +680,7 @@ const TrendyAI = () => {
               }}
               className="flex items-center gap-2"
             >
-              {/* Photo / Screenshot Upload Button */}
+              {/* Photo Upload */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -624,11 +697,11 @@ const TrendyAI = () => {
                 📷
               </button>
 
-              {/* Voice Microphone Button */}
+              {/* Voice Microphone */}
               <button
                 type="button"
                 onClick={toggleListening}
-                title="Order by Voice"
+                title="Speak to AI"
                 className={`p-2 rounded-xl transition-all cursor-pointer text-lg ${
                   isListening
                     ? "bg-red-500 text-white animate-bounce"
@@ -643,7 +716,7 @@ const TrendyAI = () => {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Ask, speak, or upload photo..."
+                placeholder="Ask e.g. 'Do you have a car?' or speak..."
                 className="flex-1 px-3 py-2 text-xs sm:text-sm bg-gray-100 dark:bg-neutral-800 text-gray-900 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-white border border-transparent"
               />
 
