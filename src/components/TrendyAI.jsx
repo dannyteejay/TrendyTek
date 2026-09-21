@@ -8,10 +8,11 @@ import { toast } from "react-toastify";
  * Features:
  * 1. 📋 Multi-Item Availability Audit: Scans handwritten lists, notes, WhatsApp text, screenshots & checks 100% store inventory
  * 2. 📸 Enhanced In-Browser OCR: High-contrast adaptive image pre-processing for handwritten & photographed notes
- * 3. 🎯 High-Accuracy Fuzzy Matcher: Levenshtein distance & phonetic word tolerance
- * 4. 💰 Dynamic Real-World Currency Price Formatter synced with active store currency
- * 5. 🛒 1-Click "Add All Available to Cart"
- * 6. 🎙️ Real-Time Voice Search & Conversational Speech
+ * 3. 🎯 Advanced Multi-Delimiter List Splitter: Splits items even if OCR merges multiple lines together
+ * 4. 🧠 High-Accuracy Fuzzy Matcher: Levenshtein distance & OCR character confusion tolerance (0/O, 1/l, 5/S)
+ * 5. 💰 Dynamic Real-World Currency Price Formatter synced with active store currency
+ * 6. 🛒 1-Click "Add All Available to Cart"
+ * 7. 🎙️ Real-Time Voice Search & Conversational Speech
  */
 const TrendyAI = () => {
   const shopContext = useContext(ShopContext) || {};
@@ -124,12 +125,30 @@ const TrendyAI = () => {
     return matrix[bn][an];
   };
 
+  // Normalize common OCR character confusions (0/O, 1/l/I, 5/S, vv/w)
+  const normalizeOCRText = (str) => {
+    return (str || "")
+      .toLowerCase()
+      .replace(/[0o]/g, "o")
+      .replace(/[1li]/g, "i")
+      .replace(/[5s]/g, "s")
+      .replace(/vv/g, "w")
+      .replace(/[^a-z\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
   const fuzzyWordMatch = (w1, w2) => {
     if (!w1 || !w2) return false;
     if (w1 === w2) return true;
     if (w1.includes(w2) || w2.includes(w1)) return true;
+
+    const norm1 = normalizeOCRText(w1);
+    const norm2 = normalizeOCRText(w2);
+    if (norm1 === norm2) return true;
+
     const maxLen = Math.max(w1.length, w2.length);
-    if (maxLen <= 3) return w1 === w2;
+    if (maxLen <= 3) return w1 === w2 || norm1 === norm2;
     const dist = levenshtein(w1, w2);
     return dist <= (maxLen > 6 ? 2 : 1);
   };
@@ -217,16 +236,37 @@ const TrendyAI = () => {
     [products]
   );
 
-  // Split raw text or OCR output into distinct items
+  // Split raw text or OCR output into distinct items (Robust multi-delimiter splitting)
   const parseListItems = (text) => {
     if (!text) return [];
 
-    let rawLines = text
-      .split(/\r?\n|;\s*|(?<=\w)\s*,\s*(?=(?:[0-9]+[\.\)]|\b(?:and|also|with)\b|[A-Z]))/)
+    // 1. Normalize circle numbers & unicode bullets
+    let normalized = text
+      .replace(/[①❶]/g, "\n1. ")
+      .replace(/[②❷]/g, "\n2. ")
+      .replace(/[③❸]/g, "\n3. ")
+      .replace(/[④❹]/g, "\n4. ")
+      .replace(/[⑤❺]/g, "\n5. ")
+      .replace(/[⑥❻]/g, "\n6. ")
+      .replace(/[⑦❼]/g, "\n7. ")
+      .replace(/[⑧❽]/g, "\n8. ")
+      .replace(/[⑨❾]/g, "\n9. ")
+      .replace(/[⑩❿]/g, "\n10. ");
+
+    // 2. Insert explicit newlines before list markers (e.g., "(2)", "2.", "2)", "[2]") even if on same line
+    normalized = normalized.replace(
+      /(^|[^\n])\s*(?=[\(\[\{<]?[0-9]{1,2}[\)\]\}>\.\:\-]\s+)/g,
+      "$1\n"
+    );
+
+    // 3. Split by newlines or semicolons
+    let rawLines = normalized
+      .split(/\r?\n|;/)
       .map((l) => l.trim())
       .filter((l) => l.length >= 2);
 
-    if (rawLines.length === 1 && (text.includes(",") || text.includes(" and "))) {
+    // 4. If still only 1 line, check if comma or 'and' separated
+    if (rawLines.length === 1 && (text.includes(",") || /\band\b/i.test(text))) {
       rawLines = text
         .split(/,|\band\b/i)
         .map((l) => l.trim())
@@ -290,7 +330,7 @@ const TrendyAI = () => {
           const g = d[i + 1];
           const b = d[i + 2];
           let v = 0.299 * r + 0.587 * g + 0.114 * b;
-          v = (v - 128) * 1.5 + 128; // High contrast
+          v = (v - 128) * 1.5 + 128;
           v = Math.min(255, Math.max(0, v));
           d[i] = d[i + 1] = d[i + 2] = v;
         }
@@ -369,7 +409,8 @@ const TrendyAI = () => {
       const isListQuery =
         (imageAnalysisData && imageAnalysisData.isOrderList) ||
         raw.includes("\n") ||
-        (raw.includes(",") && (raw.includes(" and ") || raw.match(/\d+\./)));
+        (raw.includes(",") && (raw.includes(" and ") || raw.match(/\d+\./))) ||
+        raw.match(/[\(\[\{<]?[0-9]{1,2}[\)\]\}>\.\:\-]\s+/);
 
       if (isListQuery) {
         const textToParse = imageAnalysisData?.extractedText || raw;
