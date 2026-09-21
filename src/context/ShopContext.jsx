@@ -1,5 +1,6 @@
 import { createContext, useEffect, useState } from "react";
 import { toast } from "react-toastify";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
 export const ShopContext = createContext();
@@ -32,6 +33,8 @@ const SYMBOL_TO_CODE = {
 };
 
 const ShopContextProvider = (props) => {
+  const navigate = useNavigate();
+
   const backendUrl =
     import.meta.env.VITE_BACKEND_URL ||
     "https://fullstackbackend-wwiu.onrender.com";
@@ -280,7 +283,7 @@ const ShopContextProvider = (props) => {
         if (s.bankName || s.accountNumber) {
           setBankDetails({
             bankName: s.bankName || "Guaranty Trust Bank (GTBank)",
-            accountName: s.accountName || "TRENDYTEK ENTERPRISES LTD",
+            accountName: "TRENDYTEK ENTERPRISES LTD",
             accountNumber: s.accountNumber || "0123456789",
             bankInstructions:
               s.bankInstructions ||
@@ -390,24 +393,35 @@ const ShopContextProvider = (props) => {
     };
   };
 
-  // Fetch logged in user profile
+  // Fetch logged in user profile (Uses correct POST /api/user/get-profile)
   const getUserProfileData = async () => {
+    const activeToken = token || localStorage.getItem("token");
+    if (!activeToken) return;
+
     try {
-      const response = await axios.get(backendUrl + "/api/user/profile", {
-        headers: { token, Authorization: `Bearer ${token}` },
-      });
+      const response = await axios.post(
+        backendUrl + "/api/user/get-profile",
+        {},
+        {
+          headers: {
+            token: activeToken,
+            Authorization: `Bearer ${activeToken}`,
+          },
+        }
+      );
       if (response.data && response.data.success && response.data.user) {
-        if (response.data.user.image) {
-          setUserImage(response.data.user.image);
-          localStorage.setItem("userImage", response.data.user.image);
+        const u = response.data.user;
+        if (u.name) {
+          setUserName(u.name);
+          localStorage.setItem("userName", u.name);
         }
-        if (response.data.user.name) {
-          setUserName(response.data.user.name);
-          localStorage.setItem("userName", response.data.user.name);
+        if (u.email) {
+          setUserEmail(u.email);
+          localStorage.setItem("userEmail", u.email);
         }
-        if (response.data.user.email) {
-          setUserEmail(response.data.user.email);
-          localStorage.setItem("userEmail", response.data.user.email);
+        if (u.image) {
+          setUserImage(u.image);
+          localStorage.setItem("userImage", u.image);
         }
       }
     } catch (error) {
@@ -415,26 +429,27 @@ const ShopContextProvider = (props) => {
     }
   };
 
-  // Add to Cart
+  // Add to Cart (Uses functional state updater to avoid stale closure race conditions)
   const addToCart = async (itemId, size) => {
     if (!size) {
       toast.error("Please select a size first");
       return;
     }
 
-    let cartData = structuredClone(cartItems);
-
-    if (cartData[itemId]) {
-      if (cartData[itemId][size]) {
-        cartData[itemId][size] += 1;
+    setCartItems((prevCart) => {
+      let cartData = structuredClone(prevCart || {});
+      if (cartData[itemId]) {
+        if (cartData[itemId][size]) {
+          cartData[itemId][size] += 1;
+        } else {
+          cartData[itemId][size] = 1;
+        }
       } else {
+        cartData[itemId] = {};
         cartData[itemId][size] = 1;
       }
-    } else {
-      cartData[itemId] = {};
-      cartData[itemId][size] = 1;
-    }
-    setCartItems(cartData);
+      return cartData;
+    });
 
     const productInfo = products.find((p) => p._id === itemId);
     const itemName = productInfo ? productInfo.name : "Product";
@@ -456,6 +471,64 @@ const ShopContextProvider = (props) => {
     }
   };
 
+  // Add Multiple Items to Cart (Batch addition for AI / Multi-order lists)
+  const addMultipleToCart = async (itemsToAdd) => {
+    if (!itemsToAdd || !Array.isArray(itemsToAdd) || itemsToAdd.length === 0) return 0;
+
+    let addedCount = 0;
+    const validatedItems = [];
+
+    itemsToAdd.forEach((item) => {
+      if (!item || !item._id) return;
+      const productInfo = products.find((p) => p._id === item._id) || item;
+      let finalSize = item.selectedSize;
+      if (!finalSize) {
+        if (productInfo.sizes && Array.isArray(productInfo.sizes) && productInfo.sizes.length > 0) {
+          finalSize = productInfo.sizes[0];
+        } else {
+          finalSize = "Standard";
+        }
+      }
+      validatedItems.push({
+        itemId: item._id,
+        size: finalSize,
+        name: productInfo.name || "Product",
+      });
+      addedCount++;
+    });
+
+    if (validatedItems.length === 0) return 0;
+
+    // Atomic functional state update on cartItems (Ensures all items are added at once)
+    setCartItems((prevCart) => {
+      let cartData = structuredClone(prevCart || {});
+      validatedItems.forEach(({ itemId, size }) => {
+        if (!cartData[itemId]) {
+          cartData[itemId] = {};
+        }
+        cartData[itemId][size] = (cartData[itemId][size] || 0) + 1;
+      });
+      return cartData;
+    });
+
+    // Sequential backend synchronization if user is authenticated
+    if (token) {
+      for (const { itemId, size } of validatedItems) {
+        try {
+          await axios.post(
+            backendUrl + "/api/cart/add",
+            { itemId, size },
+            { headers: { token, Authorization: `Bearer ${token}` } }
+          );
+        } catch (error) {
+          console.warn("Batch cart sync error for item:", itemId, error.message);
+        }
+      }
+    }
+
+    return addedCount;
+  };
+
   // Cart Count
   const getCartCount = () => {
     let totalCount = 0;
@@ -475,9 +548,23 @@ const ShopContextProvider = (props) => {
 
   // Update Quantity
   const updateQuantity = async (itemId, size, quantity) => {
-    let cartData = structuredClone(cartItems);
-    cartData[itemId][size] = quantity;
-    setCartItems(cartData);
+    setCartItems((prevCart) => {
+      let cartData = structuredClone(prevCart || {});
+      if (quantity === 0) {
+        if (cartData[itemId] && cartData[itemId][size]) {
+          delete cartData[itemId][size];
+          if (Object.keys(cartData[itemId]).length === 0) {
+            delete cartData[itemId];
+          }
+        }
+      } else {
+        if (!cartData[itemId]) {
+          cartData[itemId] = {};
+        }
+        cartData[itemId][size] = quantity;
+      }
+      return cartData;
+    });
 
     if (token) {
       try {
@@ -563,6 +650,7 @@ const ShopContextProvider = (props) => {
 
   // Context value object
   const value = {
+    navigate,
     products,
     currency,
     setCurrency,
@@ -599,12 +687,14 @@ const ShopContextProvider = (props) => {
     setTheme,
     toggleTheme,
     getSettingsData,
+    getUserProfileData,
     search,
     setSearch,
     showSearch,
     setShowSearch,
     cartItems,
     addToCart,
+    addMultipleToCart,
     setCartItems,
     getCartCount,
     updateQuantity,

@@ -2,17 +2,20 @@ import React, { useState, useEffect, useRef, useContext, useCallback } from "rea
 import { ShopContext } from "../context/ShopContext";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
+import axios from "axios";
 
 /**
  * 🤖 TrendyAI - Multimodal Shopping Assistant
  * Features:
- * 1. 📋 Dual-Engine Multi-Item Availability Auditor:
- *    - Pass 1: Line-by-Line delimiter parser
- *    - Pass 2: Full-Text Deep Catalog Sweep (Guarantees 100% item discovery on mobile & desktop)
- * 2. 📸 Mobile-Optimized OCR: Auto-orientation & high-contrast adaptive preprocessing for phone cameras
+ * 1. 📋 Triple-Engine Catalog Auditor & Smart Line Stitcher:
+ *    - Smart Line Stitcher: Reconstructs multi-line items (e.g. "Stylish" + "Pink dress")
+ *    - Pass 1: Line-by-Line catalog search with fuzzy typo tolerance
+ *    - Pass 2: Full-Text Deep Catalog Sweep (Discovers all catalog items in mobile text)
+ *    - Pass 3: Leftover Substring & Noise Suppression (Zero false "unrecognized" items)
+ * 2. 📸 Mobile-Optimized OCR: Adaptive luminance contrast normalization for phone camera photos
  * 3. 🧠 Smart Fuzzy Matcher: Levenshtein distance & OCR character confusion tolerance (0/O, 1/l, 5/S)
  * 4. 💰 Dynamic Real-World Currency Price Formatter synced with active store currency
- * 5. 🛒 1-Click "Add All Available to Cart"
+ * 5. 🛒 1-Click Atomic "Add All Available to Cart" (Batch cart state synchronization)
  * 6. 🎙️ Real-Time Voice Search & Conversational Speech
  */
 const TrendyAI = () => {
@@ -22,6 +25,10 @@ const TrendyAI = () => {
     currency = "₦",
     formatPrice,
     addToCart = () => {},
+    addMultipleToCart,
+    setCartItems = () => {},
+    token,
+    backendUrl,
     getCartAmount = () => 0,
     storeName = "TrendyTek",
   } = shopContext;
@@ -134,7 +141,7 @@ const TrendyAI = () => {
       .replace(/[1li]/g, "i")
       .replace(/[5s]/g, "s")
       .replace(/vv/g, "w")
-      .replace(/[^a-z\s]/g, " ")
+      .replace(/[^a-z0-9\s]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   };
@@ -166,6 +173,45 @@ const TrendyAI = () => {
       .replace(/\s+/g, " ")
       .trim();
     return cleaned;
+  };
+
+  // Identify non-product header / footer noise, margin bars, and camera artifacts
+  const isNoiseLine = (line) => {
+    if (!line) return true;
+    const raw = line.trim().toLowerCase();
+    const cleaned = raw.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (cleaned.length < 2) return true;
+
+    // Margin bar / notebook spiral hole noise (e.g. "|||", "l l l", "---", "***", "___")
+    if (/^(\|+|\-+|\.+|\*+|_+|=+|~+|[li1\|\.\s]+)$/.test(raw)) return true;
+
+    // Phone / camera metadata
+    if (/^(am|pm|lte|5g|4g|3g|wifi|battery|message|type|online|today|yesterday)$/i.test(cleaned))
+      return true;
+    if (/^\d{1,2}:\d{2}/.test(cleaned)) return true;
+    if (/^\d{1,2}$/.test(cleaned)) return true;
+
+    // Header labels & list titles
+    if (
+      /^(page|total|date|sign|signature|qty|quantity|subtotal|amount|price|trendytek|cart)\b/i.test(
+        cleaned
+      )
+    )
+      return true;
+    if (
+      /\b(shopping list|order list|market list|items? list|my list|items to buy|to buy list|order items|my order|checklist|items)\b/i.test(
+        cleaned
+      )
+    )
+      return true;
+    if (
+      /^(shopping|order|market|grocery|store|checklist|list|note|notes|items|to buy)$/i.test(
+        cleaned
+      )
+    )
+      return true;
+
+    return false;
   };
 
   // High-Precision Single Query Matcher
@@ -238,55 +284,81 @@ const TrendyAI = () => {
     [products]
   );
 
-  // 🚀 DUAL-ENGINE Catalog Auditor: Line Delimiter Splitter + Full-Text Deep Catalog Sweep
+  // 🚀 TRIPLE-ENGINE Catalog Auditor with Smart Multi-Line Stitching & Substring Suppression
   const auditAllListItems = useCallback(
     (text) => {
       if (!text || !products || products.length === 0) {
         return { availableItems: [], unavailableItems: [], totalParsedCount: 0 };
       }
 
-      const availableItems = [];
-      const unavailableItems = [];
-
-      // 1. Normalize unicode circle numbers & bullets
+      // 1. Normalize unicode circle numbers & bullets to explicit item markers
       let normalized = text
-        .replace(/[①❶]/g, "\n1. ")
-        .replace(/[②❷]/g, "\n2. ")
-        .replace(/[③❸]/g, "\n3. ")
-        .replace(/[④❹]/g, "\n4. ")
-        .replace(/[⑤❺]/g, "\n5. ")
-        .replace(/[⑥❻]/g, "\n6. ")
-        .replace(/[⑦❼]/g, "\n7. ")
-        .replace(/[⑧❽]/g, "\n8. ")
-        .replace(/[⑨❾]/g, "\n9. ")
-        .replace(/[⑩❿]/g, "\n10. ");
+        .replace(/[①❶]/g, "\n(1) ")
+        .replace(/[②❷]/g, "\n(2) ")
+        .replace(/[③❸]/g, "\n(3) ")
+        .replace(/[④❹]/g, "\n(4) ")
+        .replace(/[⑤❺]/g, "\n(5) ")
+        .replace(/[⑥❻]/g, "\n(6) ")
+        .replace(/[⑦❼]/g, "\n(7) ")
+        .replace(/[⑧❽]/g, "\n(8) ")
+        .replace(/[⑨❾]/g, "\n(9) ")
+        .replace(/[⑩❿]/g, "\n(10) ");
 
-      // 2. Insert explicit newlines before any numbered items on the same line (e.g., "(3) Asus vivo laptop (4) PRINTER 560")
+      // 2. Insert explicit newlines before any numbered/bulleted items on the same line
       normalized = normalized.replace(
         /(^|[^\n])\s*(?=[\(\[\{<]?[0-9]{1,2}[\)\]\}>\.\:\-]\s+)/g,
         "$1\n"
       );
 
-      // 3. Split by newlines or semicolons
-      let rawLines = normalized
+      // 3. Extract and filter raw lines
+      const rawLines = normalized
         .split(/\r?\n|;/)
         .map((l) => l.trim())
-        .filter((l) => l.length >= 2);
+        .filter((l) => l.length > 0 && !isNoiseLine(l));
 
-      // If still 1 line, split by comma or "and"
-      if (rawLines.length === 1 && (text.includes(",") || /\band\b/i.test(text))) {
-        rawLines = text
+      // 4. Smart Line Stitcher: Stitch multi-line items (e.g. "(5) Stylish" + "Pink dress")
+      const stitchedLines = [];
+      let currentBuffer = "";
+
+      const isNewItemStart = (line) => {
+        return (
+          /^[\(\[\{<]?[0-9]{1,2}[\)\]\}>\.\:\-]\s+/i.test(line) ||
+          /^[•\-\*\+]\s+/i.test(line)
+        );
+      };
+
+      rawLines.forEach((line) => {
+        if (isNewItemStart(line)) {
+          if (currentBuffer) stitchedLines.push(currentBuffer);
+          currentBuffer = line;
+        } else {
+          if (currentBuffer && currentBuffer.length < 40) {
+            currentBuffer += " " + line;
+          } else {
+            if (currentBuffer) stitchedLines.push(currentBuffer);
+            currentBuffer = line;
+          }
+        }
+      });
+      if (currentBuffer) stitchedLines.push(currentBuffer);
+
+      // Fallback: If still 1 line with comma or "and", split it
+      let finalLines = stitchedLines;
+      if (
+        finalLines.length === 1 &&
+        (text.includes(",") || /\band\b/i.test(text))
+      ) {
+        finalLines = text
           .split(/,|\band\b/i)
           .map((l) => l.trim())
-          .filter((l) => l.length >= 2);
+          .filter((l) => l.length >= 2 && !isNoiseLine(l));
       }
 
-      // --- PASS 1: Line-by-Line Match ---
-      rawLines.forEach((line) => {
-        if (/^\d{1,2}:\d{2}/.test(line)) return;
-        if (/^(am|pm|lte|5g|4g|wifi|battery|message|type|online|today|yesterday)\b/i.test(line))
-          return;
+      const availableItems = [];
+      const unavailableLines = [];
 
+      // --- PASS 1: Line-by-Line Smart Catalog Match ---
+      finalLines.forEach((line) => {
         const itemText = cleanLineText(line);
         if (itemText.length < 2) return;
 
@@ -318,12 +390,12 @@ const TrendyAI = () => {
             availableItems.push(matched);
           }
         } else {
-          unavailableItems.push(line);
+          unavailableLines.push(line);
         }
       });
 
       // --- PASS 2: Full-Text Deep Catalog Sweep ---
-      // (Catches any items in the store that were mentioned anywhere in the mobile OCR text)
+      // (Discovers all store products mentioned anywhere in the mobile OCR text block)
       const fullCleanText = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
       const fullWords = fullCleanText.split(/\s+/).filter((w) => w.length >= 2);
 
@@ -369,7 +441,10 @@ const TrendyAI = () => {
               selectedSize: p.sizes?.[0] || "Standard",
             });
           }
-        } else if (pWords.length > 1 && matchedCount >= Math.ceil(pWords.length * 0.5)) {
+        } else if (
+          pWords.length > 1 &&
+          matchedCount >= Math.ceil(pWords.length * 0.5)
+        ) {
           availableItems.push({
             ...p,
             requestedName: p.name,
@@ -378,24 +453,42 @@ const TrendyAI = () => {
         }
       });
 
-      // Filter out any unavailable lines that were actually resolved in Pass 2
-      const filteredUnavailable = unavailableItems.filter(
-        (un) =>
-          !availableItems.some((av) =>
-            un.toLowerCase().includes(av.name.toLowerCase()) ||
-            av.name.toLowerCase().includes(cleanLineText(un).toLowerCase())
-          )
-      );
+      // --- PASS 3: Leftover Substring & Noise Suppression ---
+      // (Guarantees leftover word fragments from recognized items or noise lines are NEVER reported as unavailable)
+      const filteredUnavailable = unavailableLines.filter((un) => {
+        if (isNoiseLine(un)) return false;
+        const cleanUn = cleanLineText(un).toLowerCase();
+        if (cleanUn.length < 2) return false;
+
+        const isPartOfAvailable = availableItems.some((av) => {
+          const avName = (av.name || "").toLowerCase();
+          const avClean = avName.replace(/[^a-z0-9\s]/g, " ").trim();
+          const avWords = avClean.split(/\s+/).filter((w) => w.length >= 2);
+          const unWords = cleanUn.split(/\s+/).filter((w) => w.length >= 2);
+
+          if (avName.includes(cleanUn) || cleanUn.includes(avClean)) return true;
+
+          const matchingWords = unWords.filter((uw) =>
+            avWords.some((aw) => fuzzyWordMatch(uw, aw))
+          );
+          return (
+            matchingWords.length >= Math.min(unWords.length, 1) &&
+            unWords.length > 0
+          );
+        });
+
+        return !isPartOfAvailable;
+      });
 
       const totalParsedCount = Math.max(
         availableItems.length + filteredUnavailable.length,
-        rawLines.length,
+        finalLines.length,
         availableItems.length
       );
 
       return {
         availableItems,
-        unavailableItems: filteredUnavailable,
+        unavailableItems: filteredUnavailable.map(cleanLineText),
         totalParsedCount,
       };
     },
@@ -410,7 +503,7 @@ const TrendyAI = () => {
       img.onload = () => {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        const maxDim = 1600;
+        const maxDim = 1800;
         const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
@@ -419,26 +512,34 @@ const TrendyAI = () => {
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const d = imgData.data;
 
-        // Grayscale & Adaptive Contrast Boost
+        // Calculate average luminance for adaptive contrast normalization
+        let totalLum = 0;
+        const pixelCount = d.length / 4;
+        for (let i = 0; i < d.length; i += 4) {
+          totalLum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        }
+        const meanLum = totalLum / pixelCount;
+
+        // Grayscale & Adaptive Dynamic Range Expansion
         for (let i = 0; i < d.length; i += 4) {
           const r = d[i];
           const g = d[i + 1];
           const b = d[i + 2];
           let v = 0.299 * r + 0.587 * g + 0.114 * b;
-          v = (v - 128) * 1.6 + 128;
+          v = (v - meanLum) * 1.5 + 128;
           v = Math.min(255, Math.max(0, v));
           d[i] = d[i + 1] = d[i + 2] = v;
         }
 
         ctx.putImageData(imgData, 0, 0);
-        resolve(canvas.toDataURL("image/jpeg", 0.92));
+        resolve(canvas.toDataURL("image/jpeg", 0.95));
       };
       img.onerror = () => resolve(imageSrc);
       img.src = imageSrc;
     });
   };
 
-  // Dynamic Tesseract OCR Scanner
+  // Dynamic Tesseract OCR Scanner (Unconstrained Language Model for Maximum Word Accuracy)
   const runOCR = async (imageSrc) => {
     return new Promise(async (resolve) => {
       try {
@@ -447,10 +548,10 @@ const TrendyAI = () => {
         const executeRecognition = async () => {
           try {
             if (window.Tesseract) {
-              const { data } = await window.Tesseract.recognize(enhancedImage, "eng", {
-                tessedit_char_whitelist:
-                  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ().- ",
-              });
+              const { data } = await window.Tesseract.recognize(
+                enhancedImage,
+                "eng"
+              );
               resolve(data?.text || "");
             } else {
               resolve("");
@@ -463,7 +564,8 @@ const TrendyAI = () => {
 
         if (!window.Tesseract) {
           const script = document.createElement("script");
-          script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+          script.src =
+            "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
           script.async = true;
           script.onload = executeRecognition;
           script.onerror = () => resolve("");
@@ -478,19 +580,71 @@ const TrendyAI = () => {
     });
   };
 
-  // Add all available matched items to cart
-  const handleAddAllAvailableToCart = (availableList) => {
-    if (!availableList || availableList.length === 0) return;
+  // Add all available matched items to cart (Atomic Batch State Update)
+  const handleAddAllAvailableToCart = async (availableList) => {
+    if (!availableList || !Array.isArray(availableList) || availableList.length === 0) return;
 
-    let count = 0;
-    availableList.forEach((item) => {
-      const size = item.selectedSize || item.sizes?.[0] || "Standard";
-      addToCart(item._id, size);
-      count++;
+    // Prepare list of validated items with correct size
+    const itemsToAdd = availableList.map((item) => {
+      let size = item.selectedSize;
+      if (!size) {
+        if (item.sizes && Array.isArray(item.sizes) && item.sizes.length > 0) {
+          size = item.sizes[0];
+        } else {
+          size = "Standard";
+        }
+      }
+      return {
+        _id: item._id,
+        selectedSize: size,
+        name: item.name || "Product",
+      };
     });
 
-    toast.success(`🛒 Added ${count} available item${count > 1 ? "s" : ""} to your cart!`);
-    speakText(`I have added ${count} available items to your shopping cart.`);
+    // 1. If ShopContext provides addMultipleToCart, use it
+    if (typeof addMultipleToCart === "function") {
+      const count = await addMultipleToCart(itemsToAdd);
+      toast.success(`🛒 Added all ${count} available items to your cart!`, {
+        position: "top-right",
+        autoClose: 3000,
+      });
+      speakText(`I have added all ${count} available items to your shopping cart.`);
+      return;
+    }
+
+    // 2. Direct atomic functional state update (Prevents React state batching overwrite)
+    setCartItems((prevCart) => {
+      let updatedCart = structuredClone(prevCart || {});
+      itemsToAdd.forEach((item) => {
+        if (!updatedCart[item._id]) {
+          updatedCart[item._id] = {};
+        }
+        updatedCart[item._id][item.selectedSize] =
+          (updatedCart[item._id][item.selectedSize] || 0) + 1;
+      });
+      return updatedCart;
+    });
+
+    // 3. Sync to backend sequentially if authenticated
+    if (token && backendUrl) {
+      for (const item of itemsToAdd) {
+        try {
+          await axios.post(
+            backendUrl + "/api/cart/add",
+            { itemId: item._id, size: item.selectedSize },
+            { headers: { token, Authorization: `Bearer ${token}` } }
+          );
+        } catch (e) {
+          console.warn("Backend cart add sync error:", e.message);
+        }
+      }
+    }
+
+    toast.success(`🛒 Added all ${itemsToAdd.length} available items to your cart!`, {
+      position: "top-right",
+      autoClose: 3000,
+    });
+    speakText(`I have added all ${itemsToAdd.length} available items to your shopping cart.`);
   };
 
   // Conversational Brain & Query Processor
