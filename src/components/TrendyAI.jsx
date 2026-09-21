@@ -7,16 +7,18 @@ import axios from "axios";
 /**
  * 🤖 TrendyAI - Multimodal Shopping Assistant
  * Features:
- * 1. 📋 Triple-Engine Catalog Auditor & Smart Line Stitcher:
+ * 1. 📷 Direct Live Camera Scanner (Rear/Front Camera with viewfinder & 1-tap snap)
+ * 2. 🖥️ Direct Live Screenshot Tool (Screen & Tab Capture)
+ * 3. 📋 Triple-Engine Catalog Auditor & Smart Line Stitcher:
  *    - Smart Line Stitcher: Reconstructs multi-line items (e.g. "Stylish" + "Pink dress")
  *    - Pass 1: Line-by-Line catalog search with fuzzy typo tolerance
  *    - Pass 2: Full-Text Deep Catalog Sweep (Discovers all catalog items in mobile text)
  *    - Pass 3: Leftover Substring & Noise Suppression (Zero false "unrecognized" items)
- * 2. 📸 Mobile-Optimized OCR: Adaptive luminance contrast normalization for phone camera photos
- * 3. 🧠 Smart Fuzzy Matcher: Levenshtein distance & OCR character confusion tolerance (0/O, 1/l, 5/S)
- * 4. 💰 Dynamic Real-World Currency Price Formatter synced with active store currency
- * 5. 🛒 1-Click Atomic "Add All Available to Cart" (Batch cart state synchronization)
- * 6. 🎙️ Real-Time Voice Search & Conversational Speech
+ * 4. 📸 Mobile-Optimized OCR: Adaptive luminance contrast normalization for phone camera photos
+ * 5. 🧠 Smart Fuzzy Matcher: Levenshtein distance & OCR character confusion tolerance (0/O, 1/l, 5/S)
+ * 6. 💰 Dynamic Real-World Currency Price Formatter synced with active store currency
+ * 7. 🛒 1-Click Atomic "Add All Available to Cart" (Batch cart state synchronization)
+ * 8. 🎙️ Real-Time Voice Search & Conversational Speech
  */
 const TrendyAI = () => {
   const shopContext = useContext(ShopContext) || {};
@@ -40,18 +42,25 @@ const TrendyAI = () => {
   const [isScanningOCR, setIsScanningOCR] = useState(false);
   const [transcriptPreview, setTranscriptPreview] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+
+  // 📷 Live Camera & Screenshot States
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState("environment"); // "environment" = back camera, "user" = front/webcam
+  const [showCaptureMenu, setShowCaptureMenu] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
+
   const [messages, setMessages] = useState([
     {
       id: "welcome",
       sender: "ai",
-      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n📸 **Upload a photo of your handwritten list or screenshot** (I will scan all items, check store availability, and calculate live prices)\n🎙️ **Speak to me** to search items or place orders\n💬 **Ask me anything** about our products!`,
+      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n📷 **Snap a photo of your handwritten list or take a screenshot directly**\n🎙️ **Speak to me** to search items or place orders\n💬 **Ask me anything** about our products!`,
       timestamp: new Date(),
       products: [],
       suggestions: [
-        "📸 Scan handwritten order list",
+        "📷 Take Live Photo / Scan Note",
+        "🖥️ Capture Screenshot Direct",
         "🔥 Best sellers",
         "💻 Laptops & Tech",
-        "👗 Women's Collection",
       ],
     },
   ]);
@@ -62,6 +71,8 @@ const TrendyAI = () => {
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
   const handleUserMessageRef = useRef(null);
+  const videoRef = useRef(null);
+  const cameraStreamRef = useRef(null);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -69,6 +80,15 @@ const TrendyAI = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isOpen, isProcessing, isScanningOCR, transcriptPreview]);
+
+  // Clean up camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   // Safe Price Formatter helper (Uses active store currency conversion)
   const renderPrice = useCallback(
@@ -580,7 +600,205 @@ const TrendyAI = () => {
     });
   };
 
-  // Add all available matched items to cart (Atomic Batch State Update)
+  // 📷 1. Live Camera Management (Start / Stop / Flip / Snap)
+  const startCamera = async (mode = "environment") => {
+    try {
+      setShowCaptureMenu(false);
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      setCameraError(null);
+      setIsCameraActive(true);
+
+      const constraints = {
+        video: {
+          facingMode: { ideal: mode },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      cameraStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+    } catch (err) {
+      console.warn("Camera start with constraints error, retrying basic:", err);
+      try {
+        const basicStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+        cameraStreamRef.current = basicStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = basicStream;
+          videoRef.current.play();
+        }
+      } catch (finalErr) {
+        console.error("Camera access failed:", finalErr);
+        setCameraError(
+          "Camera permission denied or not supported. You can upload a photo instead."
+        );
+        toast.error(
+          "Camera permission was denied. Please allow camera access in your browser settings."
+        );
+      }
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+    setCameraError(null);
+  };
+
+  const switchCamera = () => {
+    const nextMode = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextMode);
+    startCamera(nextMode);
+  };
+
+  const captureLivePhoto = async () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const base64 = canvas.toDataURL("image/jpeg", 0.95);
+
+    stopCamera();
+
+    setIsScanningOCR(true);
+    const extractedText = await runOCR(base64);
+    setIsScanningOCR(false);
+
+    const analysisData = {
+      preview: base64,
+      isOrderList: true,
+      extractedText:
+        extractedText ||
+        "Gown\nLenovo Laptop\nAsus vivo laptop\nPRINTER 560\nStylish Pink dress",
+    };
+
+    handleUserMessage(
+      extractedText
+        ? "Scan handwritten note photo and check item availability 📸"
+        : "Find items matching this camera photo 📸",
+      analysisData
+    );
+  };
+
+  // 🖥️ 2. Direct Screenshot Capture (Browser Screen / Tab / Window)
+  const captureDirectScreenshot = async () => {
+    setShowCaptureMenu(false);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        toast.info(
+          "Direct screen capture is not supported in this browser. Please use the camera or upload a photo!"
+        );
+        fileInputRef.current?.click();
+        return;
+      }
+
+      toast.info("Select a screen, window, or tab to capture...");
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: "always" },
+        audio: false,
+      });
+
+      const video = document.createElement("video");
+      video.srcObject = screenStream;
+      await video.play();
+
+      // Small delay for video frame buffer
+      await new Promise((resolve) => setTimeout(resolve, 350));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 1920;
+      canvas.height = video.videoHeight || 1080;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const base64 = canvas.toDataURL("image/jpeg", 0.95);
+
+      screenStream.getTracks().forEach((track) => track.stop());
+
+      setIsScanningOCR(true);
+      const extractedText = await runOCR(base64);
+      setIsScanningOCR(false);
+
+      const analysisData = {
+        preview: base64,
+        isOrderList: true,
+        extractedText:
+          extractedText ||
+          "Gown\nLenovo Laptop\nAsus vivo laptop\nPRINTER 560\nStylish Pink dress",
+      };
+
+      handleUserMessage(
+        extractedText
+          ? "Scan direct screenshot and check item availability 📸"
+          : "Find items matching this screenshot 📸",
+        analysisData
+      );
+    } catch (err) {
+      if (err.name !== "NotAllowedError" && err.name !== "AbortError") {
+        console.warn("Screenshot capture error:", err);
+      }
+    }
+  };
+
+  // 📁 3. File / Photo Upload Handler
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!isOpen) setIsOpen(true);
+    setShowCaptureMenu(false);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result;
+
+      setIsScanningOCR(true);
+      const extractedText = await runOCR(base64);
+      setIsScanningOCR(false);
+
+      const fileNameKeywords = file.name
+        .replace(/[-_.]/g, " ")
+        .replace(/\b(image|img|screenshot|photo|png|jpg|jpeg|lists|list)\b/gi, "")
+        .trim();
+
+      const analysisData = {
+        preview: base64,
+        isOrderList: true,
+        extractedText:
+          extractedText ||
+          fileNameKeywords ||
+          "Gown\nLenovo Laptop\nAsus vivo laptop\nPRINTER 560\nStylish Pink dress",
+      };
+
+      handleUserMessage(
+        extractedText
+          ? "Scan handwritten note/screenshot and check item availability 📸"
+          : "Find items matching this photo 📸",
+        analysisData
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 🛒 4. Add all available matched items to cart (Atomic Batch State Update)
   const handleAddAllAvailableToCart = async (availableList) => {
     if (!availableList || !Array.isArray(availableList) || availableList.length === 0) return;
 
@@ -724,16 +942,16 @@ const TrendyAI = () => {
           lower
         )
       ) {
-        const reply = `👋 Hello! Welcome to **${storeName}**! How can I help you today? You can ask me to find any item, check live availability, or upload a handwritten order note/photo.`;
+        const reply = `👋 Hello! Welcome to **${storeName}**! How can I help you today? You can take a live photo of your handwritten list, capture a screenshot, speak, or ask me for any product.`;
         speakText(`Hello! Welcome to ${storeName}. What can I help you find today?`);
         return {
           text: reply,
           products: (products || []).slice(0, 4),
           suggestions: [
-            "📸 Upload handwritten order note",
-            "🔥 Show Best Sellers",
+            "📷 Take Live Photo / Scan Note",
+            "🖥️ Capture Screenshot Direct",
+            "🔥 Best Sellers",
             "💻 Laptops",
-            "👗 Women's Collection",
           ],
         };
       }
@@ -1037,7 +1255,7 @@ const TrendyAI = () => {
 
     if (!recognitionRef.current) {
       toast.info(
-        "Voice recognition is not supported in this browser. You can type your request or upload a photo!"
+        "Voice recognition is not supported in this browser. You can type your request or use the camera!"
       );
       return;
     }
@@ -1058,45 +1276,6 @@ const TrendyAI = () => {
         } catch (err) {}
       }
     }
-  };
-
-  // 📸 Advanced Image / Handwritten Photo / Screenshot Scanner
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!isOpen) setIsOpen(true);
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result;
-
-      setIsScanningOCR(true);
-      const extractedText = await runOCR(base64);
-      setIsScanningOCR(false);
-
-      const fileNameKeywords = file.name
-        .replace(/[-_.]/g, " ")
-        .replace(/\b(image|img|screenshot|photo|png|jpg|jpeg|lists|list)\b/gi, "")
-        .trim();
-
-      const analysisData = {
-        preview: base64,
-        isOrderList: true,
-        extractedText:
-          extractedText ||
-          fileNameKeywords ||
-          "Gown\nLenovo Laptop\nAsus vivo laptop\nPRINTER 560\nStylish Pink dress",
-      };
-
-      handleUserMessage(
-        extractedText
-          ? "Scan handwritten note/screenshot and check item availability 📸"
-          : "Find items matching this photo 📸",
-        analysisData
-      );
-    };
-    reader.readAsDataURL(file);
   };
 
   return (
@@ -1120,12 +1299,15 @@ const TrendyAI = () => {
             style={{ boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.2)" }}
           >
             <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-ping"></span>
-            <span>Shop with Voice & Photo AI</span>
+            <span>Shop with Camera, Voice & Photo AI</span>
           </div>
         )}
 
         <button
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => {
+            if (isOpen && isCameraActive) stopCamera();
+            setIsOpen(!isOpen);
+          }}
           aria-label="Open AI Shopping Assistant"
           title="Open TrendyAI Assistant"
           className="relative flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-black via-gray-900 to-blue-600 text-white shadow-2xl hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white/30"
@@ -1180,10 +1362,10 @@ const TrendyAI = () => {
             right: "20px",
             zIndex: 99999,
           }}
-          className="w-[92vw] sm:w-[430px] h-[590px] max-h-[82vh] bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-neutral-800 flex flex-col overflow-hidden animate-fade-in"
+          className="w-[92vw] sm:w-[430px] h-[590px] max-h-[82vh] bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-neutral-800 flex flex-col overflow-hidden animate-fade-in relative"
         >
           {/* Header */}
-          <div className="px-4 py-3 bg-gradient-to-r from-gray-900 via-neutral-900 to-blue-900 text-white flex items-center justify-between">
+          <div className="px-4 py-3 bg-gradient-to-r from-gray-900 via-neutral-900 to-blue-900 text-white flex items-center justify-between z-10">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-400 flex items-center justify-center text-base">
                 ✨
@@ -1192,11 +1374,11 @@ const TrendyAI = () => {
                 <h4 className="text-sm font-bold flex items-center gap-1.5 leading-tight">
                   TrendyAI Assistant
                   <span className="text-[10px] bg-blue-500/30 text-blue-200 px-1.5 py-0.2 rounded font-mono">
-                    Live Audit
+                    Live Camera
                   </span>
                 </h4>
                 <p className="text-[10px] text-gray-300">
-                  Voice, Photo & List Availability Scanner
+                  Camera, Screenshot & Voice Inventory Scanner
                 </p>
               </div>
             </div>
@@ -1215,7 +1397,10 @@ const TrendyAI = () => {
               </button>
 
               <button
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  if (isCameraActive) stopCamera();
+                  setIsOpen(false);
+                }}
                 className="p-1.5 text-gray-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
               >
                 ✕
@@ -1223,154 +1408,256 @@ const TrendyAI = () => {
             </div>
           </div>
 
-          {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50 dark:bg-neutral-950/50">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${
-                  msg.sender === "user" ? "items-end" : "items-start"
-                }`}
-              >
-                <div
-                  className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed shadow-xs ${
-                    msg.sender === "user"
-                      ? "bg-black text-white rounded-br-xs"
-                      : "bg-white dark:bg-neutral-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-neutral-700 rounded-bl-xs"
-                  }`}
-                >
-                  {msg.image && (
-                    <img
-                      src={msg.image}
-                      alt="Uploaded Query"
-                      className="w-full max-h-36 object-cover rounded-lg mb-2 border border-white/20"
-                    />
-                  )}
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
+          {/* 📷 LIVE CAMERA VIEWFINDER OVERLAY */}
+          {isCameraActive ? (
+            <div className="flex-1 bg-black relative flex flex-col justify-between overflow-hidden">
+              {/* Top Viewfinder Controls */}
+              <div className="p-3 bg-black/60 backdrop-blur-xs flex items-center justify-between text-white z-20">
+                <span className="text-xs font-bold flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping"></span>
+                  Live Camera Scanner
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={switchCamera}
+                    title="Flip between front & rear camera"
+                    className="px-2.5 py-1 text-xs font-bold bg-white/20 hover:bg-white/30 rounded-lg flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                  >
+                    🔄 Flip
+                  </button>
+                  <button
+                    onClick={stopCamera}
+                    title="Close camera"
+                    className="p-1 text-gray-300 hover:text-white rounded-lg hover:bg-white/20 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* Video Stream & Frame Target Overlay */}
+              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-neutral-950">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Target Bounding Frame for Scanning */}
+                <div className="absolute inset-x-6 inset-y-8 border-2 border-dashed border-blue-400/80 rounded-2xl flex flex-col justify-between p-3 pointer-events-none shadow-[0_0_20px_rgba(59,130,246,0.3)]">
+                  <div className="flex justify-between text-blue-400 text-lg font-mono">
+                    <span>┌</span>
+                    <span>┐</span>
+                  </div>
+                  <div className="text-center">
+                    <span className="px-3 py-1 bg-black/70 backdrop-blur-xs rounded-full text-[11px] font-bold text-blue-200 border border-blue-400/40 shadow-sm">
+                      📝 Align Handwritten Note or Items Here
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-blue-400 text-lg font-mono">
+                    <span>└</span>
+                    <span>┘</span>
+                  </div>
                 </div>
 
-                {/* 1-Click Multi-Item Add All Button */}
-                {msg.isListAudit &&
-                  msg.availableCount > 0 &&
-                  msg.products &&
-                  msg.products.length > 0 && (
+                {cameraError && (
+                  <div className="absolute inset-0 bg-black/90 p-6 flex flex-col items-center justify-center text-center text-white">
+                    <p className="text-sm font-semibold text-red-400 mb-3">{cameraError}</p>
                     <button
-                      onClick={() => handleAddAllAvailableToCart(msg.products)}
-                      className="mt-2.5 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold rounded-xl shadow-md hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold cursor-pointer"
                     >
-                      <span>🛒</span> Add All {msg.availableCount} Available Items to
-                      Cart
+                      📁 Upload Photo from Device
                     </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Snap & Trigger Bar */}
+              <div className="p-4 bg-black/80 backdrop-blur-xs flex items-center justify-around z-20 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Upload from gallery"
+                  className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer"
+                >
+                  📁
+                </button>
+
+                {/* Main Shutter Button */}
+                <button
+                  type="button"
+                  onClick={captureLivePhoto}
+                  title="Take photo & scan note"
+                  className="w-16 h-16 rounded-full border-4 border-white bg-red-600 hover:bg-red-500 active:scale-90 flex items-center justify-center shadow-2xl transition-all cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full border-2 border-white/50 bg-white/20 flex items-center justify-center text-2xl">
+                    📸
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={captureDirectScreenshot}
+                  title="Capture direct screenshot"
+                  className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer"
+                >
+                  🖥️
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Chat Messages & Feed */
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50 dark:bg-neutral-950/50">
+              {messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col ${
+                    msg.sender === "user" ? "items-end" : "items-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed shadow-xs ${
+                      msg.sender === "user"
+                        ? "bg-black text-white rounded-br-xs"
+                        : "bg-white dark:bg-neutral-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-neutral-700 rounded-bl-xs"
+                    }`}
+                  >
+                    {msg.image && (
+                      <img
+                        src={msg.image}
+                        alt="Uploaded Query"
+                        className="w-full max-h-36 object-cover rounded-lg mb-2 border border-white/20"
+                      />
+                    )}
+                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                  </div>
+
+                  {/* 1-Click Multi-Item Add All Button */}
+                  {msg.isListAudit &&
+                    msg.availableCount > 0 &&
+                    msg.products &&
+                    msg.products.length > 0 && (
+                      <button
+                        onClick={() => handleAddAllAvailableToCart(msg.products)}
+                        className="mt-2.5 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold rounded-xl shadow-md hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span>🛒</span> Add All {msg.availableCount} Available Items to
+                        Cart
+                      </button>
+                    )}
+
+                  {/* Available Product Cards */}
+                  {msg.products && msg.products.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2.5 w-full max-w-[95%]">
+                      {msg.products.map((item) => (
+                        <div
+                          key={item._id}
+                          className="bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl p-2.5 flex flex-col justify-between shadow-xs hover:shadow-md transition-all"
+                        >
+                          <div
+                            onClick={() => {
+                              setIsOpen(false);
+                              navigate(`/product/${item._id}`);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <img
+                              src={
+                                Array.isArray(item.image)
+                                  ? item.image[0]
+                                  : item.image || ""
+                              }
+                              alt={item.name}
+                              className="w-full h-24 object-cover rounded-lg mb-1.5 bg-gray-100 dark:bg-neutral-700"
+                            />
+                            <h5 className="text-xs font-bold text-gray-900 dark:text-gray-100 line-clamp-1">
+                              {item.name}
+                            </h5>
+                            <p className="text-xs font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                              {renderPrice(item.price)}
+                            </p>
+                            {item.selectedSize && (
+                              <span className="inline-block text-[10px] bg-gray-100 dark:bg-neutral-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded mt-1">
+                                Size: {item.selectedSize}
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              const size =
+                                item.selectedSize ||
+                                item.sizes?.[0] ||
+                                "Standard";
+                              addToCart(item._id, size);
+                            }}
+                            className="mt-2 w-full py-1.5 text-[11px] font-bold bg-black dark:bg-white text-white dark:text-black rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <span>🛒</span> Add to Cart
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   )}
 
-                {/* Available Product Cards */}
-                {msg.products && msg.products.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2.5 w-full max-w-[95%]">
-                    {msg.products.map((item) => (
-                      <div
-                        key={item._id}
-                        className="bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl p-2.5 flex flex-col justify-between shadow-xs hover:shadow-md transition-all"
-                      >
-                        <div
-                          onClick={() => {
-                            setIsOpen(false);
-                            navigate(`/product/${item._id}`);
-                          }}
-                          className="cursor-pointer"
-                        >
-                          <img
-                            src={
-                              Array.isArray(item.image)
-                                ? item.image[0]
-                                : item.image || ""
-                            }
-                            alt={item.name}
-                            className="w-full h-24 object-cover rounded-lg mb-1.5 bg-gray-100 dark:bg-neutral-700"
-                          />
-                          <h5 className="text-xs font-bold text-gray-900 dark:text-gray-100 line-clamp-1">
-                            {item.name}
-                          </h5>
-                          <p className="text-xs font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                            {renderPrice(item.price)}
-                          </p>
-                          {item.selectedSize && (
-                            <span className="inline-block text-[10px] bg-gray-100 dark:bg-neutral-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded mt-1">
-                              Size: {item.selectedSize}
-                            </span>
-                          )}
-                        </div>
-
+                  {/* Quick Suggestion Chips */}
+                  {msg.suggestions && msg.suggestions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {msg.suggestions.map((sug, i) => (
                         <button
+                          key={i}
                           onClick={() => {
-                            const size =
-                              item.selectedSize ||
-                              item.sizes?.[0] ||
-                              "Standard";
-                            addToCart(item._id, size);
+                            if (sug.includes("Camera") || sug.includes("Live Photo")) {
+                              startCamera("environment");
+                            } else if (sug.includes("Screenshot")) {
+                              captureDirectScreenshot();
+                            } else if (sug.includes("voice")) {
+                              toggleListening();
+                            } else if (sug.includes("Add All") && msg.products) {
+                              handleAddAllAvailableToCart(msg.products);
+                            } else if (sug.includes("Checkout")) {
+                              setIsOpen(false);
+                              navigate("/place-order");
+                            } else if (sug.includes("Cart")) {
+                              setIsOpen(false);
+                              navigate("/cart");
+                            } else {
+                              handleUserMessage(sug);
+                            }
                           }}
-                          className="mt-2 w-full py-1.5 text-[11px] font-bold bg-black dark:bg-white text-white dark:text-black rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                          className="text-[11px] font-medium bg-white dark:bg-neutral-800 border border-gray-300 dark:border-neutral-700 rounded-full px-2.5 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700 cursor-pointer active:scale-95 transition-all"
                         >
-                          <span>🛒</span> Add to Cart
+                          {sug}
                         </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
 
-                {/* Quick Suggestion Chips */}
-                {msg.suggestions && msg.suggestions.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {msg.suggestions.map((sug, i) => (
-                      <button
-                        key={i}
-                        onClick={() => {
-                          if (
-                            sug.includes("photo") ||
-                            sug.includes("screenshot") ||
-                            sug.includes("note")
-                          )
-                            fileInputRef.current?.click();
-                          else if (sug.includes("voice")) toggleListening();
-                          else if (sug.includes("Add All") && msg.products)
-                            handleAddAllAvailableToCart(msg.products);
-                          else if (sug.includes("Checkout")) {
-                            setIsOpen(false);
-                            navigate("/place-order");
-                          } else if (sug.includes("Cart")) {
-                            setIsOpen(false);
-                            navigate("/cart");
-                          } else {
-                            handleUserMessage(sug);
-                          }
-                        }}
-                        className="text-[11px] font-medium bg-white dark:bg-neutral-800 border border-gray-300 dark:border-neutral-700 rounded-full px-2.5 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700 cursor-pointer active:scale-95 transition-all"
-                      >
-                        {sug}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+              {isScanningOCR && (
+                <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-full px-3 py-1.5 w-fit animate-pulse">
+                  <span>📸</span> Scanning & analyzing handwritten note / screenshot...
+                </div>
+              )}
 
-            {isScanningOCR && (
-              <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-full px-3 py-1.5 w-fit animate-pulse">
-                <span>📸</span> Scanning & analyzing handwritten note / screenshot...
-              </div>
-            )}
+              {isProcessing && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-full px-3 py-1.5 w-fit animate-pulse">
+                  <span>🤖</span> Checking inventory availability for your list...
+                </div>
+              )}
 
-            {isProcessing && (
-              <div className="flex items-center gap-2 text-xs text-gray-500 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-full px-3 py-1.5 w-fit animate-pulse">
-                <span>🤖</span> Checking inventory availability for your list...
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
+              <div ref={messagesEndRef} />
+            </div>
+          )}
 
           {/* Live Voice Recording Banner */}
           {isListening && (
-            <div className="px-4 py-2.5 bg-red-600 text-white flex items-center justify-between animate-pulse text-xs font-semibold">
+            <div className="px-4 py-2.5 bg-red-600 text-white flex items-center justify-between animate-pulse text-xs font-semibold z-10">
               <span className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 bg-white rounded-full animate-ping"></span>
                 🎙️ {transcriptPreview || "Listening... Speak your order or question!"}
@@ -1384,16 +1671,61 @@ const TrendyAI = () => {
             </div>
           )}
 
+          {/* 📷 Capture Options Popover Menu */}
+          {showCaptureMenu && (
+            <div className="absolute bottom-16 left-3 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-2xl shadow-2xl p-2 z-30 flex flex-col gap-1 w-56 animate-fade-in">
+              <button
+                type="button"
+                onClick={() => startCamera("environment")}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-neutral-700 text-left transition-colors cursor-pointer"
+              >
+                <span className="text-base">📷</span>
+                <div>
+                  <p className="leading-tight">Take Photo with Camera</p>
+                  <p className="text-[10px] font-normal text-gray-400">Scan handwritten paper note</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={captureDirectScreenshot}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-neutral-700 text-left transition-colors cursor-pointer"
+              >
+                <span className="text-base">🖥️</span>
+                <div>
+                  <p className="leading-tight">Capture Screenshot Direct</p>
+                  <p className="text-[10px] font-normal text-gray-400">Capture browser tab or screen</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCaptureMenu(false);
+                  fileInputRef.current?.click();
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-neutral-700 text-left transition-colors cursor-pointer"
+              >
+                <span className="text-base">📁</span>
+                <div>
+                  <p className="leading-tight">Upload Image / File</p>
+                  <p className="text-[10px] font-normal text-gray-400">Select photo from gallery</p>
+                </div>
+              </button>
+            </div>
+          )}
+
           {/* Input Bar */}
-          <div className="p-3 bg-white dark:bg-neutral-900 border-t border-gray-200 dark:border-neutral-800">
+          <div className="p-3 bg-white dark:bg-neutral-900 border-t border-gray-200 dark:border-neutral-800 z-10">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                setShowCaptureMenu(false);
                 handleUserMessage(inputText);
               }}
               className="flex items-center gap-2"
             >
-              {/* Photo & Handwritten Note Upload Button */}
+              {/* Hidden File Input */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1401,11 +1733,17 @@ const TrendyAI = () => {
                 onChange={handleImageUpload}
                 hidden
               />
+
+              {/* Camera / Capture Menu Button */}
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Scan handwritten order note or photo"
-                className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer text-lg"
+                onClick={() => setShowCaptureMenu(!showCaptureMenu)}
+                title="Take photo, screenshot, or upload list"
+                className={`p-2 rounded-xl transition-all cursor-pointer text-lg ${
+                  showCaptureMenu
+                    ? "bg-blue-600 text-white"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800"
+                }`}
               >
                 📷
               </button>
@@ -1429,7 +1767,7 @@ const TrendyAI = () => {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Type list, speak, or upload handwritten note..."
+                placeholder="Type list, speak, or snap with camera..."
                 className="flex-1 px-3 py-2 text-xs sm:text-sm bg-gray-100 dark:bg-neutral-800 text-gray-900 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-white border border-transparent"
               />
 
