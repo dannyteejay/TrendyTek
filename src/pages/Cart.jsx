@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 const Cart = () => {
-  const { products, currency, cartItems, updateQuantity, token } =
+  const { products, currency, formatPrice, cartItems, updateQuantity, token } =
     useContext(ShopContext);
   const navigate = useNavigate();
   const [cartData, setCartData] = useState([]);
@@ -30,7 +30,7 @@ const Cart = () => {
     }
   }, [cartItems, products]);
 
-  // 🔒 Secure Checkout Gate: Requires user to login before checkout
+  // Secure Checkout Gate: Requires user to login before checkout
   const handleProceedToCheckout = () => {
     if (cartData.length === 0) {
       toast.error("Your cart is empty! Add products first.");
@@ -82,6 +82,12 @@ const Cart = () => {
                   ? productData.image[0]
                   : productData.image || assets.upload_area;
 
+              // Automatic currency price conversion
+              const itemFormattedPrice =
+                typeof formatPrice === "function"
+                  ? formatPrice(productData.price)
+                  : `${currency}${Number(productData.price).toLocaleString()}`;
+
               return (
                 <div
                   key={index}
@@ -99,8 +105,7 @@ const Cart = () => {
                       </p>
                       <div className="flex items-center gap-4 mt-2">
                         <p className="font-semibold text-gray-900 dark:text-white text-xs sm:text-sm">
-                          {currency}
-                          {Number(productData.price).toLocaleString()}
+                          {itemFormattedPrice}
                         </p>
                         <p className="px-2.5 sm:px-3 sm:py-1 text-xs border border-gray-300 dark:border-slate-700 rounded bg-gray-50 dark:bg-slate-800">
                           {item.size}

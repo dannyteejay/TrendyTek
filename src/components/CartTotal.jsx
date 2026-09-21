@@ -5,6 +5,7 @@ import Title from "./Title";
 const CartTotal = ({ destination }) => {
   const {
     currency,
+    formatPrice,
     delivery_fee,
     freeShippingThreshold,
     shippingStatus,
@@ -38,7 +39,8 @@ const CartTotal = ({ destination }) => {
   const totalWithShipping =
     cartAmount === 0 ? 0 : cartAmount + currentShippingFee;
 
-  const threshold = Number(zoneInfo.freeThreshold) || Number(freeShippingThreshold) || 0;
+  const threshold =
+    Number(zoneInfo.freeThreshold) || Number(freeShippingThreshold) || 0;
   const qualifiesForThreshold = threshold > 0 && cartAmount >= threshold;
   const isFree =
     cartAmount > 0 &&
@@ -47,7 +49,16 @@ const CartTotal = ({ destination }) => {
       qualifiesForThreshold);
 
   const amountNeeded = threshold > 0 ? Math.max(0, threshold - cartAmount) : 0;
-  const progressPercent = threshold > 0 ? Math.min(100, (cartAmount / threshold) * 100) : 100;
+  const progressPercent =
+    threshold > 0 ? Math.min(100, (cartAmount / threshold) * 100) : 100;
+
+  // Safe currency converter helper
+  const renderPrice = (val) => {
+    if (typeof formatPrice === "function") {
+      return formatPrice(val);
+    }
+    return `${currency || "₦"}${Number(val).toLocaleString()}`;
+  };
 
   return (
     <div className="w-full">
@@ -61,10 +72,13 @@ const CartTotal = ({ destination }) => {
           <div className="flex items-center justify-between mb-1.5">
             <span className="font-semibold text-teal-900 dark:text-teal-200">
               {qualifiesForThreshold ? (
-                <span>🎉 You qualify for <b>FREE Shipping!</b></span>
+                <span>
+                  🎉 You qualify for <b>FREE Shipping!</b>
+                </span>
               ) : (
                 <span>
-                  Add <b>{currency}{amountNeeded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> more for <b>FREE Shipping!</b>
+                  Add <b>{renderPrice(amountNeeded)}</b> more for{" "}
+                  <b>FREE Shipping!</b>
                 </span>
               )}
             </span>
@@ -88,11 +102,7 @@ const CartTotal = ({ destination }) => {
         <div className="flex justify-between py-1 border-b border-gray-200 dark:border-slate-800">
           <p>Sub Total</p>
           <p className="font-semibold text-gray-900 dark:text-white">
-            {currency}
-            {cartAmount.toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            {renderPrice(cartAmount)}
           </p>
         </div>
 
@@ -117,7 +127,7 @@ const CartTotal = ({ destination }) => {
           <div className="text-right">
             {cartAmount === 0 ? (
               <p className="font-semibold text-gray-900 dark:text-white">
-                {currency}0.00
+                {renderPrice(0)}
               </p>
             ) : isFree ? (
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-green-100 dark:bg-green-900/60 text-green-700 dark:text-green-300">
@@ -125,11 +135,7 @@ const CartTotal = ({ destination }) => {
               </span>
             ) : (
               <p className="font-semibold text-gray-900 dark:text-white">
-                {currency}
-                {currentShippingFee.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
+                {renderPrice(currentShippingFee)}
               </p>
             )}
           </div>
@@ -139,11 +145,7 @@ const CartTotal = ({ destination }) => {
         <div className="flex justify-between py-2 text-sm sm:text-base font-bold text-gray-900 dark:text-white">
           <b>Total Amount</b>
           <b className="text-base sm:text-lg text-gray-900 dark:text-white">
-            {currency}
-            {totalWithShipping.toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            {renderPrice(totalWithShipping)}
           </b>
         </div>
       </div>
