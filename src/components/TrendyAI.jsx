@@ -53,7 +53,7 @@ const TrendyAI = () => {
     {
       id: "welcome",
       sender: "ai",
-      text: `👋 Hi! I'm **TrendyAI**, your smart shopping assistant at **${storeName}**.\n\n📷 **Snap a photo of your handwritten list or take a screenshot directly**\n🎙️ **Speak to me** to search items or place orders\n💬 **Ask me anything** about our products!`,
+      text: `👋 Hi! I'm **TrendyTek AI**, your smart shopping assistant at **${storeName}**.\n\n📷 **Snap a photo of your handwritten list or take a screenshot directly**\n🎙️ **Speak to me** to search items or place orders\n💬 **Ask me anything** about our products!`,
       timestamp: new Date(),
       products: [],
       suggestions: [
@@ -1309,7 +1309,7 @@ const TrendyAI = () => {
             setIsOpen(!isOpen);
           }}
           aria-label="Open AI Shopping Assistant"
-          title="Open TrendyAI Assistant"
+          title="Open TrendyTek AI Assistant"
           className="relative flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-black via-gray-900 to-blue-600 text-white shadow-2xl hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white/30"
           style={{ boxShadow: "0 10px 30px rgba(0, 102, 255, 0.4)" }}
         >
@@ -1372,7 +1372,7 @@ const TrendyAI = () => {
               </div>
               <div>
                 <h4 className="text-sm font-bold flex items-center gap-1.5 leading-tight">
-                  TrendyAI Assistant
+                  TrendyTek AI Assistant
                   <span className="text-[10px] bg-blue-500/30 text-blue-200 px-1.5 py-0.2 rounded font-mono">
                     Live Camera
                   </span>
