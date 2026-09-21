@@ -1,11 +1,21 @@
 import React, { useContext, useState } from "react";
 import { ShopContext } from "../context/ShopContext";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "react-toastify";
 
 const Login = () => {
   const [currentState, setCurrentState] = useState("Login"); // 'Login' | 'Sign Up' | 'Forgot Password' | 'Reset Password'
-  const { token, setToken, navigate, backendUrl } = useContext(ShopContext);
+  const navigate = useNavigate();
+
+  const {
+    token,
+    setToken,
+    backendUrl,
+    setUserName,
+    setUserEmail,
+    setUserImage,
+  } = useContext(ShopContext);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -25,26 +35,58 @@ const Login = () => {
           email: email.trim().toLowerCase(),
           password,
         });
-        if (response.data.success) {
-          setToken(response.data.token);
-          localStorage.setItem("token", response.data.token);
+
+        if (response.data && response.data.success) {
+          const userToken = response.data.token;
+          const uName = response.data.userName || name.trim();
+          const uEmail = response.data.userEmail || email.trim().toLowerCase();
+          const uImg = response.data.userImage || "";
+
+          setToken(userToken);
+          localStorage.setItem("token", userToken);
+
+          if (setUserName) setUserName(uName);
+          localStorage.setItem("userName", uName);
+
+          if (setUserEmail) setUserEmail(uEmail);
+          localStorage.setItem("userEmail", uEmail);
+
+          if (setUserImage) setUserImage(uImg);
+          localStorage.setItem("userImage", uImg);
+
           toast.success("Account created successfully!");
           navigate("/");
         } else {
-          toast.error(response.data.message);
+          toast.error(response.data?.message || "Failed to register account.");
         }
       } else if (currentState === "Login") {
         const response = await axios.post(`${backendUrl}/api/user/login`, {
           email: email.trim().toLowerCase(),
           password,
         });
-        if (response.data.success) {
-          setToken(response.data.token);
-          localStorage.setItem("token", response.data.token);
-          toast.success("Welcome back!");
+
+        if (response.data && response.data.success) {
+          const userToken = response.data.token;
+          const uName = response.data.userName || "Customer";
+          const uEmail = response.data.userEmail || email.trim().toLowerCase();
+          const uImg = response.data.userImage || "";
+
+          setToken(userToken);
+          localStorage.setItem("token", userToken);
+
+          if (setUserName) setUserName(uName);
+          localStorage.setItem("userName", uName);
+
+          if (setUserEmail) setUserEmail(uEmail);
+          localStorage.setItem("userEmail", uEmail);
+
+          if (setUserImage) setUserImage(uImg);
+          localStorage.setItem("userImage", uImg);
+
+          toast.success(`Welcome back, ${uName}!`);
           navigate("/");
         } else {
-          toast.error(response.data.message);
+          toast.error(response.data?.message || "Invalid email or password.");
         }
       } else if (currentState === "Forgot Password") {
         if (!email.trim()) {
@@ -52,14 +94,17 @@ const Login = () => {
           setLoading(false);
           return;
         }
-        const response = await axios.post(`${backendUrl}/api/user/forgot-password`, {
-          email: email.trim().toLowerCase(),
-        });
-        if (response.data.success) {
+        const response = await axios.post(
+          `${backendUrl}/api/user/forgot-password`,
+          {
+            email: email.trim().toLowerCase(),
+          }
+        );
+        if (response.data && response.data.success) {
           toast.success("6-digit code sent to your email!");
           setCurrentState("Reset Password");
         } else {
-          toast.error(response.data.message);
+          toast.error(response.data?.message || "Failed to send reset code.");
         }
       } else if (currentState === "Reset Password") {
         const cleanEmail = email.trim().toLowerCase();
@@ -78,19 +123,22 @@ const Login = () => {
           setLoading(false);
           return;
         }
-        const response =await axios.post(backendUrl + '/api/user/reset-password', {
-          email: email, // 👈 makes sure your email is sent!
-          otp,
-          newPassword,
-        });
-        if (response.data.success) {
+        const response = await axios.post(
+          `${backendUrl}/api/user/reset-password`,
+          {
+            email: cleanEmail,
+            otp: otp.trim(),
+            newPassword: newPassword.trim(),
+          }
+        );
+        if (response.data && response.data.success) {
           toast.success("Password reset successful! Please sign in.");
           setPassword("");
           setNewPassword("");
           setOtp("");
           setCurrentState("Login");
         } else {
-          toast.error(response.data.message);
+          toast.error(response.data?.message || "Failed to reset password.");
         }
       }
     } catch (error) {
@@ -152,7 +200,7 @@ const Login = () => {
         />
       )}
 
-      {/* Email field (Shown in Login, Sign Up, Forgot Password, or if email was lost) */}
+      {/* Email field */}
       {(currentState === "Login" ||
         currentState === "Sign Up" ||
         currentState === "Forgot Password" ||
@@ -294,7 +342,9 @@ const Login = () => {
                     `${backendUrl}/api/user/forgot-password`,
                     { email }
                   );
-                  if (res.data.success) toast.success("New code sent to email!");
+                  if (res.data && res.data.success) {
+                    toast.success("New code sent to email!");
+                  }
                 } catch (err) {
                   toast.error(err.response?.data?.message || err.message);
                 }
