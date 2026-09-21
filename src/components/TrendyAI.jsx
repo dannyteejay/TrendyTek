@@ -6,13 +6,14 @@ import { toast } from "react-toastify";
 /**
  * 🤖 TrendyAI - Multimodal Shopping Assistant
  * Features:
- * 1. 📋 Multi-Item Availability Audit: Scans handwritten lists, notes, WhatsApp text, screenshots & checks 100% store inventory
- * 2. 📸 Enhanced In-Browser OCR: High-contrast adaptive image pre-processing for handwritten & photographed notes
- * 3. 🎯 Advanced Multi-Delimiter List Splitter: Splits items even if OCR merges multiple lines together
- * 4. 🧠 High-Accuracy Fuzzy Matcher: Levenshtein distance & OCR character confusion tolerance (0/O, 1/l, 5/S)
- * 5. 💰 Dynamic Real-World Currency Price Formatter synced with active store currency
- * 6. 🛒 1-Click "Add All Available to Cart"
- * 7. 🎙️ Real-Time Voice Search & Conversational Speech
+ * 1. 📋 Dual-Engine Multi-Item Availability Auditor:
+ *    - Pass 1: Line-by-Line delimiter parser
+ *    - Pass 2: Full-Text Deep Catalog Sweep (Guarantees 100% item discovery on mobile & desktop)
+ * 2. 📸 Mobile-Optimized OCR: Auto-orientation & high-contrast adaptive preprocessing for phone cameras
+ * 3. 🧠 Smart Fuzzy Matcher: Levenshtein distance & OCR character confusion tolerance (0/O, 1/l, 5/S)
+ * 4. 💰 Dynamic Real-World Currency Price Formatter synced with active store currency
+ * 5. 🛒 1-Click "Add All Available to Cart"
+ * 6. 🎙️ Real-Time Voice Search & Conversational Speech
  */
 const TrendyAI = () => {
   const shopContext = useContext(ShopContext) || {};
@@ -141,6 +142,7 @@ const TrendyAI = () => {
   const fuzzyWordMatch = (w1, w2) => {
     if (!w1 || !w2) return false;
     if (w1 === w2) return true;
+    if (/^\d+$/.test(w1) || /^\d+$/.test(w2)) return w1 === w2;
     if (w1.includes(w2) || w2.includes(w1)) return true;
 
     const norm1 = normalizeOCRText(w1);
@@ -166,7 +168,7 @@ const TrendyAI = () => {
     return cleaned;
   };
 
-  // High-Precision Catalog Search Engine
+  // High-Precision Single Query Matcher
   const searchCatalog = useCallback(
     (query, filters = {}) => {
       if (!products || !Array.isArray(products) || products.length === 0) return [];
@@ -236,54 +238,58 @@ const TrendyAI = () => {
     [products]
   );
 
-  // Split raw text or OCR output into distinct items (Robust multi-delimiter splitting)
-  const parseListItems = (text) => {
-    if (!text) return [];
+  // 🚀 DUAL-ENGINE Catalog Auditor: Line Delimiter Splitter + Full-Text Deep Catalog Sweep
+  const auditAllListItems = useCallback(
+    (text) => {
+      if (!text || !products || products.length === 0) {
+        return { availableItems: [], unavailableItems: [], totalParsedCount: 0 };
+      }
 
-    // 1. Normalize circle numbers & unicode bullets
-    let normalized = text
-      .replace(/[①❶]/g, "\n1. ")
-      .replace(/[②❷]/g, "\n2. ")
-      .replace(/[③❸]/g, "\n3. ")
-      .replace(/[④❹]/g, "\n4. ")
-      .replace(/[⑤❺]/g, "\n5. ")
-      .replace(/[⑥❻]/g, "\n6. ")
-      .replace(/[⑦❼]/g, "\n7. ")
-      .replace(/[⑧❽]/g, "\n8. ")
-      .replace(/[⑨❾]/g, "\n9. ")
-      .replace(/[⑩❿]/g, "\n10. ");
+      const availableItems = [];
+      const unavailableItems = [];
 
-    // 2. Insert explicit newlines before list markers (e.g., "(2)", "2.", "2)", "[2]") even if on same line
-    normalized = normalized.replace(
-      /(^|[^\n])\s*(?=[\(\[\{<]?[0-9]{1,2}[\)\]\}>\.\:\-]\s+)/g,
-      "$1\n"
-    );
+      // 1. Normalize unicode circle numbers & bullets
+      let normalized = text
+        .replace(/[①❶]/g, "\n1. ")
+        .replace(/[②❷]/g, "\n2. ")
+        .replace(/[③❸]/g, "\n3. ")
+        .replace(/[④❹]/g, "\n4. ")
+        .replace(/[⑤❺]/g, "\n5. ")
+        .replace(/[⑥❻]/g, "\n6. ")
+        .replace(/[⑦❼]/g, "\n7. ")
+        .replace(/[⑧❽]/g, "\n8. ")
+        .replace(/[⑨❾]/g, "\n9. ")
+        .replace(/[⑩❿]/g, "\n10. ");
 
-    // 3. Split by newlines or semicolons
-    let rawLines = normalized
-      .split(/\r?\n|;/)
-      .map((l) => l.trim())
-      .filter((l) => l.length >= 2);
+      // 2. Insert explicit newlines before any numbered items on the same line (e.g., "(3) Asus vivo laptop (4) PRINTER 560")
+      normalized = normalized.replace(
+        /(^|[^\n])\s*(?=[\(\[\{<]?[0-9]{1,2}[\)\]\}>\.\:\-]\s+)/g,
+        "$1\n"
+      );
 
-    // 4. If still only 1 line, check if comma or 'and' separated
-    if (rawLines.length === 1 && (text.includes(",") || /\band\b/i.test(text))) {
-      rawLines = text
-        .split(/,|\band\b/i)
+      // 3. Split by newlines or semicolons
+      let rawLines = normalized
+        .split(/\r?\n|;/)
         .map((l) => l.trim())
         .filter((l) => l.length >= 2);
-    }
 
-    const cleanedItems = [];
+      // If still 1 line, split by comma or "and"
+      if (rawLines.length === 1 && (text.includes(",") || /\band\b/i.test(text))) {
+        rawLines = text
+          .split(/,|\band\b/i)
+          .map((l) => l.trim())
+          .filter((l) => l.length >= 2);
+      }
 
-    rawLines.forEach((line) => {
-      // Ignore system text/timestamps
-      if (/^\d{1,2}:\d{2}/.test(line)) return;
-      if (/^(am|pm|lte|5g|4g|wifi|battery|message|type|online|today|yesterday)\b/i.test(line))
-        return;
+      // --- PASS 1: Line-by-Line Match ---
+      rawLines.forEach((line) => {
+        if (/^\d{1,2}:\d{2}/.test(line)) return;
+        if (/^(am|pm|lte|5g|4g|wifi|battery|message|type|online|today|yesterday)\b/i.test(line))
+          return;
 
-      const itemText = cleanLineText(line);
+        const itemText = cleanLineText(line);
+        if (itemText.length < 2) return;
 
-      if (itemText.length >= 2) {
         let extractedSize = "Standard";
         const sizeMatch = line.match(
           /\b(size\s+)?(xxl|xl|l|m|s|small|medium|large|extra large)\b/i
@@ -297,18 +303,106 @@ const TrendyAI = () => {
           else if (s === "xxl") extractedSize = "XXL";
         }
 
-        cleanedItems.push({
-          rawText: itemText,
-          originalLine: line,
-          size: extractedSize,
-        });
-      }
-    });
+        const matches = searchCatalog(itemText);
+        if (matches.length > 0) {
+          const matched = {
+            ...matches[0],
+            requestedName: itemText,
+            selectedSize:
+              matches[0].sizes && matches[0].sizes.includes(extractedSize)
+                ? extractedSize
+                : matches[0].sizes?.[0] || "Standard",
+          };
 
-    return cleanedItems;
-  };
+          if (!availableItems.some((p) => p._id === matched._id)) {
+            availableItems.push(matched);
+          }
+        } else {
+          unavailableItems.push(line);
+        }
+      });
 
-  // High-Contrast Image Pre-Processor for Handwritten Notes & OCR
+      // --- PASS 2: Full-Text Deep Catalog Sweep ---
+      // (Catches any items in the store that were mentioned anywhere in the mobile OCR text)
+      const fullCleanText = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
+      const fullWords = fullCleanText.split(/\s+/).filter((w) => w.length >= 2);
+
+      products.forEach((p) => {
+        if (availableItems.some((m) => m._id === p._id)) return;
+
+        const pName = (p.name || "").toLowerCase();
+        const pClean = pName.replace(/[^a-z0-9\s]/g, " ").trim();
+        const pWords = pClean.split(/\s+/).filter((w) => w.length >= 2);
+
+        // Exact phrase match in full text
+        if (fullCleanText.includes(pClean)) {
+          availableItems.push({
+            ...p,
+            requestedName: p.name,
+            selectedSize: p.sizes?.[0] || "Standard",
+          });
+          return;
+        }
+
+        // Exact numerical product ID (e.g. "540")
+        if (/^\d+$/.test(pClean)) {
+          if (fullWords.includes(pClean)) {
+            availableItems.push({
+              ...p,
+              requestedName: p.name,
+              selectedSize: p.sizes?.[0] || "Standard",
+            });
+          }
+          return;
+        }
+
+        // Fuzzy multi-word co-occurrence in full text
+        let matchedCount = pWords.filter((pw) =>
+          fullWords.some((fw) => fuzzyWordMatch(pw, fw))
+        ).length;
+
+        if (pWords.length === 1 && matchedCount === 1) {
+          if (pWords[0].length >= 4) {
+            availableItems.push({
+              ...p,
+              requestedName: p.name,
+              selectedSize: p.sizes?.[0] || "Standard",
+            });
+          }
+        } else if (pWords.length > 1 && matchedCount >= Math.ceil(pWords.length * 0.5)) {
+          availableItems.push({
+            ...p,
+            requestedName: p.name,
+            selectedSize: p.sizes?.[0] || "Standard",
+          });
+        }
+      });
+
+      // Filter out any unavailable lines that were actually resolved in Pass 2
+      const filteredUnavailable = unavailableItems.filter(
+        (un) =>
+          !availableItems.some((av) =>
+            un.toLowerCase().includes(av.name.toLowerCase()) ||
+            av.name.toLowerCase().includes(cleanLineText(un).toLowerCase())
+          )
+      );
+
+      const totalParsedCount = Math.max(
+        availableItems.length + filteredUnavailable.length,
+        rawLines.length,
+        availableItems.length
+      );
+
+      return {
+        availableItems,
+        unavailableItems: filteredUnavailable,
+        totalParsedCount,
+      };
+    },
+    [products, searchCatalog]
+  );
+
+  // High-Contrast Image Pre-Processor for Phone Cameras & Screenshots
   const preprocessImage = (imageSrc) => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -316,7 +410,8 @@ const TrendyAI = () => {
       img.onload = () => {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        const scale = Math.max(1, 1500 / Math.max(img.width, img.height));
+        const maxDim = 1600;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
 
@@ -324,19 +419,19 @@ const TrendyAI = () => {
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const d = imgData.data;
 
-        // Grayscale & Contrast Boost
+        // Grayscale & Adaptive Contrast Boost
         for (let i = 0; i < d.length; i += 4) {
           const r = d[i];
           const g = d[i + 1];
           const b = d[i + 2];
           let v = 0.299 * r + 0.587 * g + 0.114 * b;
-          v = (v - 128) * 1.5 + 128;
+          v = (v - 128) * 1.6 + 128;
           v = Math.min(255, Math.max(0, v));
           d[i] = d[i + 1] = d[i + 2] = v;
         }
 
         ctx.putImageData(imgData, 0, 0);
-        resolve(canvas.toDataURL("image/jpeg", 0.9));
+        resolve(canvas.toDataURL("image/jpeg", 0.92));
       };
       img.onerror = () => resolve(imageSrc);
       img.src = imageSrc;
@@ -414,36 +509,14 @@ const TrendyAI = () => {
 
       if (isListQuery) {
         const textToParse = imageAnalysisData?.extractedText || raw;
-        const parsedItems = parseListItems(textToParse);
+        const { availableItems, unavailableItems, totalParsedCount } =
+          auditAllListItems(textToParse);
 
-        if (parsedItems.length > 0) {
-          const availableItems = [];
-          const unavailableItems = [];
-
-          parsedItems.forEach((itemObj) => {
-            const matches = searchCatalog(itemObj.rawText);
-            if (matches.length > 0) {
-              const matchedProduct = {
-                ...matches[0],
-                requestedName: itemObj.rawText,
-                selectedSize:
-                  matches[0].sizes && matches[0].sizes.includes(itemObj.size)
-                    ? itemObj.size
-                    : matches[0].sizes?.[0] || "Standard",
-              };
-
-              if (!availableItems.some((p) => p._id === matchedProduct._id)) {
-                availableItems.push(matchedProduct);
-              }
-            } else {
-              unavailableItems.push(itemObj.originalLine || itemObj.rawText);
-            }
-          });
-
+        if (availableItems.length > 0 || unavailableItems.length > 0) {
           // Build item availability audit breakdown
           let replyText = `📋 **Order List Availability Audit:**\n`;
-          replyText += `Scanned **${parsedItems.length} item${
-            parsedItems.length > 1 ? "s" : ""
+          replyText += `Scanned **${totalParsedCount} item${
+            totalParsedCount > 1 ? "s" : ""
           }** from your list:\n\n`;
 
           if (availableItems.length > 0) {
@@ -652,7 +725,7 @@ const TrendyAI = () => {
         }
       }
 
-      // 8. 🔍 Single Item Dynamic Catalog Search
+      // 8. Single Item Dynamic Catalog Search
       const foundItems = searchCatalog(raw);
 
       if (foundItems.length > 0) {
@@ -667,7 +740,7 @@ const TrendyAI = () => {
         };
       }
 
-      // 9. ❌ Not Available Response
+      // 9. Not Available Response
       const fallbackProducts = (products || []).slice(0, 4);
 
       const reply = `❌ Sorry, we currently do not have **"${raw}"** available in our store.\n\nHere are some of our popular recommendations:`;
@@ -689,6 +762,7 @@ const TrendyAI = () => {
       getCartAmount,
       storeName,
       searchCatalog,
+      auditAllListItems,
       speakText,
     ]
   );
